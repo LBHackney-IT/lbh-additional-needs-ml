@@ -24,9 +24,9 @@ from models.relation_classifier import RelationClassifierPipeline
 from models.span_classifier import SpanClassifierPipeline
 from torch.utils.data import DataLoader, Dataset
 
-from common.json_helpers import load_json
-from common.logging import setup_logger
-from common.schemas import EnrichedNote, Relation, Span
+from src.common.json_helpers import load_json
+from src.common.logging import setup_logger
+from src.common.schemas import EnrichedNote
 
 # SageMaker Processing default channel paths.
 DEFAULT_MODEL_ROOT = Path("/opt/ml/processing/model")
@@ -133,8 +133,8 @@ def _process_batch(
 
     enriched_payloads: list[dict] = []
     for record, text, spans in zip(records, texts, span_preds, strict=True):
-        needs = spans["needs"]
-        persons = spans["persons"]
+        needs = spans.needs
+        persons = spans.persons
         relations = relation_pipeline.predict_from_spans(
             text, needs, persons
         )  # 2. Relation Classifier
@@ -144,9 +144,9 @@ def _process_batch(
             text=text,
             date=record.get("note_date") or record.get("date"),
             model=model_name,
-            needs=[Span(**s) for s in needs],
-            persons=[Span(**p) for p in persons],
-            relations=[Relation(**r) for r in relations],
+            needs=needs,
+            persons=persons,
+            relations=relations,
             tenure_ids=record.get("tenure_ids", []),
             household_members=record.get("household_members", []),
             pipeline_run_at=pipeline_run_at,

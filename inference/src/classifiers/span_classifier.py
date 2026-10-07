@@ -20,8 +20,8 @@ from safetensors.torch import load_file
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
 
-from common.json_helpers import load_json
-from common.schemas import Span
+from src.common.json_helpers import load_json
+from src.common.schemas import Span, SpanPredictions
 
 # --- Constants ---
 DEFAULT_MODEL_ROOT = Path("/opt/ml/processing/model")
@@ -95,7 +95,7 @@ def correct_offset(text: str, char_start: int, char_end: int) -> tuple[int, int]
     return char_start + n_stripped, char_end
 
 
-def deduplicate_predictions(pred_list: list[dict]) -> list[dict]:
+def deduplicate_predictions(pred_list: list[Span]) -> list[Span]:
     """Perform greedy non-maximum suppression on predicted spans.
 
     Suppresses lower-confidence overlapping spans only when they share the same label.
@@ -114,14 +114,14 @@ def deduplicate_predictions(pred_list: list[dict]) -> list[dict]:
         """Check if spans [a_start, a_end) and [b_start, b_end) overlap."""
         return max(a_start, b_start) < min(a_end, b_end)
 
-    sorted_preds = sorted(pred_list, key=lambda item: item["confidence"], reverse=True)
-    kept = []
+    sorted_preds = sorted(pred_list, key=lambda item: item.confidence, reverse=True)
+    kept: list[Span] = []
     for pred in sorted_preds:
         # Different labels may overlap; suppress only same-label duplicates.
         if not any(
-            pred["label"] == k["label"]
-            and spans_overlap(pred["start"], pred["end"], k["start"], k["end"])
-            for k in kept
+            pred.label == kept_span.label
+            and spans_overlap(pred.start, pred.end, kept_span.start, kept_span.end)
+            for kept_span in kept
         ):
             kept.append(pred)
     return kept
@@ -294,15 +294,14 @@ class SpanClassifierPipeline:
         self.model.load_state_dict(state_dict)
         self.model.eval()  # Disable training behaviour
 
-    def predict_batch(self, texts: list[str]) -> list[dict[str, list[dict]]]:
+    def predict_batch(self, texts: list[str]) -> list[SpanPredictions]:
         """Run batch span prediction over a list of document texts.
 
         Args:
             texts: List of input document strings.
 
         Returns:
-            List of dictionaries per document, each containing 'needs' and 'persons'
-            lists of extracted span predictions.
+            Typed span predictions grouped into needs and persons for each document.
         """
         if not texts:
             return []
@@ -331,7 +330,7 @@ class SpanClassifierPipeline:
             flat_candidates.extend((chunk_idx, start, end) for start, end in candidates)
 
         if not flat_candidates:
-            return [{"needs": [], "persons": []} for _ in texts]
+            return [SpanPredictions() for _ in texts]
 
         # 3. Classify every candidate span in every window in a single forward pass.
         input_ids = tokenized["input_ids"].to(self.device)
@@ -344,7 +343,7 @@ class SpanClassifierPipeline:
         # 4. Walk through the windows in order. Convert each window's token spans to character positions, grouped by original document.
         correct_leading_whitespace_offset = "deberta" in self.base_model.lower()
 
-        doc_spans: list[list[dict]] = [[] for _ in texts]
+        doc_spans: list[list[Span]] = [[] for _ in texts]
         cursor = 0
         for _chunk_idx, (doc_idx, offsets, candidates) in enumerate(
             zip(sample_mapping, all_offsets, per_window_candidates, strict=True)
@@ -373,14 +372,14 @@ class SpanClassifierPipeline:
             doc_spans[doc_idx].extend(chunk_extracted)
 
         # 5. Deduplicate labels globally per doc & format
-        results = []
+        results: list[SpanPredictions] = []
         for _raw_text, spans in zip(texts, doc_spans, strict=True):
             deduped = deduplicate_predictions(spans)
             results.append(
-                {
-                    "needs": [s for s in deduped if s["label"] not in self.person_labels],
-                    "persons": [s for s in deduped if s["label"] in self.person_labels],
-                }
+                SpanPredictions(
+                    needs=[s for s in deduped if s.label not in self.person_labels],
+                    persons=[s for s in deduped if s.label in self.person_labels],
+                )
             )
 
         return results

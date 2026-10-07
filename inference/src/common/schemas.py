@@ -21,6 +21,13 @@ class Span(BaseModel):
     confidence: float
 
 
+class SpanPredictions(BaseModel):
+    """Span predictions grouped by their role in a note."""
+
+    needs: list[Span] = Field(default_factory=list)
+    persons: list[Span] = Field(default_factory=list)
+
+
 class Relation(BaseModel):
     """Need → person relation."""
 

@@ -16,10 +16,10 @@ import difflib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, TypedDict
+from typing import TypedDict
 from zoneinfo import ZoneInfo
 
-from common.schemas import EnrichedNote, Link
+from src.common.schemas import EnrichedNote, HouseholdMember, Link
 
 
 class ResolveResult(TypedDict):
@@ -62,7 +62,7 @@ class DeterministicEntityLinker:
         self,
         extracted: str,
         entity_type: str,
-        household: list[dict[str, Any]],
+        household: list[HouseholdMember],
     ) -> ResolveResult:
         """Match an extracted person span against a household member ID.
 
@@ -76,34 +76,46 @@ class DeterministicEntityLinker:
         text_lower = extracted.lower()
 
         if entity_type == "person_name":
-            matches = [(self._fuzzy(extracted, p.get("fullName", "")), p["id"]) for p in household]
+            matches = [(self._fuzzy(extracted, p.fullName or ""), p.id) for p in household]
             if matches:
                 best_score, best_id = max(matches, key=lambda x: x[0])
                 if best_score >= self.fuzzy_similarity:
-                    return ResolveResult(best_id, best_score, "fuzzy_name")
+                    return ResolveResult(
+                        target_id=best_id,
+                        confidence=best_score,
+                        method="fuzzy_name",
+                    )
 
         elif entity_type == "person_role":
             if self.tenant_role in text_lower:
                 tenants = [
                     p
                     for p in household
-                    if str(p.get("personTenureType", "")).lower() == self.tenant_role
+                    if str(p.personTenureType or "").lower() == self.tenant_role
                 ]
                 if len(tenants) == 1:
-                    return ResolveResult(tenants[0]["id"], 1.0, "role_tenant")
+                    return ResolveResult(
+                        target_id=tenants[0].id,
+                        confidence=1.0,
+                        method="role_tenant",
+                    )
 
             if self.leaseholder_role in text_lower:
                 leaseholders = [
                     p
                     for p in household
-                    if str(p.get("personTenureType", "")).lower() == self.leaseholder_role
+                    if str(p.personTenureType or "").lower() == self.leaseholder_role
                 ]
                 if len(leaseholders) == 1:
-                    return ResolveResult(leaseholders[0]["id"], 1.0, "role_leaseholder")
+                    return ResolveResult(
+                        target_id=leaseholders[0].id,
+                        confidence=1.0,
+                        method="role_leaseholder",
+                    )
 
-        return ResolveResult(None, 0.0, None)
+        return ResolveResult(target_id=None, confidence=0.0, method=None)
 
-    def _is_minor(self, household: list[dict[str, Any]], person_id: str) -> bool:
+    def _is_minor(self, household: list[HouseholdMember], person_id: str) -> bool:
         """Check if a matched household member is under 18 years old.
 
         Treats missing birth dates as adult by default.
@@ -115,11 +127,11 @@ class DeterministicEntityLinker:
         Returns:
             True if person is under 18; False otherwise.
         """
-        person = next((hm for hm in household if hm["id"] == person_id), None)
+        person = next((hm for hm in household if hm.id == person_id), None)
         if not person:
             return False
 
-        dob_raw = person.get("dateOfBirth")
+        dob_raw = person.dateOfBirth
         if not dob_raw:
             return False
 
@@ -147,7 +159,7 @@ class DeterministicEntityLinker:
 
         # Loop through each relation
         for rel in record.relations:
-            need_id, person_ref_id = rel.from_id, rel.to_id
+            need_id, person_ref_id = rel.from_id, rel.to
 
             # Check IDs exist
             if need_id not in needs_lookup or person_ref_id not in persons_lookup:
@@ -175,21 +187,20 @@ class DeterministicEntityLinker:
 
             # Attempt to resolve; drop if minor
             res = self._resolve_span(extracted_text, entity_label, household)
-            if res.person_id and self._is_minor(household, res.person_id):
+            target_id = res["target_id"]
+            if target_id and self._is_minor(household, target_id):
                 if self.logger:
-                    self.logger.info(
-                        "Excluding minor person %s for need %s", res.person_id, need_id
-                    )
+                    self.logger.info("Excluding minor person %s for need %s", target_id, need_id)
                 continue
 
-            if res.person_id and res.method:
+            if target_id and res["method"]:
                 links.append(
                     Link(
                         need_id=need_id,
-                        target_id=res.person_id,
+                        target_id=target_id,
                         target_type="person",
-                        confidence=res.confidence,
-                        method=res.method,
+                        confidence=res["confidence"],
+                        method=res["method"],
                     )
                 )
 

@@ -14,12 +14,12 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from common.json_helpers import load_json
-from common.schemas import Relation, Span
+from src.common.json_helpers import load_json
+from src.common.schemas import Relation, Span
 
 DEFAULT_MODEL_ROOT = Path("/opt/ml/processing/model")
 SPECIAL_TOKENS = ["[N_START]", "[N_END]", "[P_START]", "[P_END]"]
-# Tuple alias representing: (note_text, need_span_dict, person_span_dict)
+# Tuple alias representing: (note_text, need_span, person_span).
 CandidatePair = tuple[str, Span, Span]
 
 
@@ -106,34 +106,35 @@ class RelationClassifierPipeline:
 
     @staticmethod
     def _build_candidate_pairs(
-        text: str, needs: list[dict], persons: list[dict]
+        text: str, needs: list[Span], persons: list[Span]
     ) -> list[CandidatePair]:
         """Generate Cartesian product of candidate need and person span pairs.
 
         Args:
             text: Raw case note text string.
-            needs: List of extracted need span dictionaries.
-            persons: List of extracted person span dictionaries.
+            needs: Extracted need spans.
+            persons: Extracted person spans.
 
         Returns:
             List of (text, need_span, person_span) tuples for relation scoring.
         """
-        return [CandidatePair(text, need, person) for need in needs for person in persons]
+        return [(text, need, person) for need in needs for person in persons]
 
-    def predict_from_spans(self, text: str, needs: list[dict], persons: list[dict]) -> list[dict]:
+    def predict_from_spans(
+        self, text: str, needs: list[Span], persons: list[Span]
+    ) -> list[Relation]:
         """Wrapper to build candidate pairs and predict relations in one call."""
-        candidate_pairs = self.build_candidate_pairs(text, needs, persons)
+        candidate_pairs = self._build_candidate_pairs(text, needs, persons)
         return self.predict_pairs(candidate_pairs)
 
-    def predict_pairs(self, candidate_pairs: list[CandidatePair]) -> list[dict]:
+    def predict_pairs(self, candidate_pairs: list[CandidatePair]) -> list[Relation]:
         """Score (text, need, person) candidate tuples and return valid links above threshold.
 
         Args:
             candidate_pairs: List of (document_text, need_span, person_span) tuples.
 
         Returns:
-            List of valid relation dictionaries containing 'from' (need_id), 'to' (person_id),
-            and 'confidence' score.
+            List of need-to-person relations.
         """
         if not candidate_pairs:
             return []
@@ -169,9 +170,15 @@ class RelationClassifierPipeline:
             pair_max_probs[pair_idx] = max(pair_max_probs[pair_idx], prob)
 
         # Filter by threshold and format
-        relations = []
+        relations: list[Relation] = []
         for (_, need, person), prob in zip(candidate_pairs, pair_max_probs, strict=True):
             if prob > self.threshold:
-                relations.append(Relation(from_id=need.id, to=person.id, confidence=float(prob)))
+                relations.append(
+                    Relation(
+                        from_id=need.id,
+                        to=person.id,
+                        confidence=float(prob),
+                    )
+                )
 
         return relations
