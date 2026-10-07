@@ -1,112 +1,109 @@
-# Training & Experimentation
+# Training and Experimentation
 
-Contains preprocessing scripts and the logic for training and evaluating the NER and Relation Extraction models.
+This folder is the **research and development workspace** for the Additional Needs pipeline. It contains preprocessing, model training, evaluation, baselines, and scripts for investigating new approaches.
 
+It is not the production runtime. Production code lives in [`../inference/`](../inference/). A change here does not change production until a model or rule is deliberately promoted and checked against∂ production.
+
+## The R&D Loop
+
+Most work follows this sequence:
+
+```text
+prepare data -> train or run a baseline -> evaluate -> inspect errors -> decide whether to promote
+```
+
+The two learned components are:
+
+- **Span model:** finds Additional Needs and person mentions in note text.
+- **Relation model:** predicts which person mention a need refers to.
+
+Entity linking is currently a rule-based step. The R&D linking script is useful for inspection, but it is not backed by a labelled evaluation set.
 
 ## Setup
+
+Run these commands from `dev/`:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-
 pip install -e .
 pip install -r requirements.txt
 ```
 
-_Training scripts assume you have access to the `data-platform-development` AWS account using the following profile name: `data-platform-admin-dev`._
+Training and SageMaker jobs require access to the `data-platform-development` AWS account with the `data-platform-admin-dev` profile. Training is intended for a GPU machine or the configured SageMaker `ml.g5.xlarge` job; preprocessing and evaluation can generally run on CPU.
 
-### GPU Support
+## Workflow
 
-It is highly recommended to use a GPU-accelerated machine if you wish to train locally. Please ensure it has sufficient VRAM. Alternatively, this repo is set up to run training jobs using AWS Sagemaker GPU instances (`ml.g5.xlarge`) on the data platform dev account.
+### 1. Prepare data
 
-The remaining components, including data preprocessing, inference, and evaluation, can be run on a CPU-only machine.
+The scripts in [`preprocessing/`](./preprocessing/) prepare data for annotation, training, and evaluation. Numbered scripts are intended to be followed in order. Read the script configuration before running one because some steps use AWS or write to shared data locations.
 
-Refer to the official [PyTorch installation guide](https://pytorch.org/get-started/locally/) for installation instructions for your platform.
+The upstream ETL that ingests and reshapes MMH notes is maintained in [DAP's Airflow repository](https://github.com/LBHackney-IT/dap-airflow/blob/main/etl_scripts/housing/additional_needs/additional_needs_notes_reshape.py).
 
+### 2. Train models
 
-## Running Scripts
-
-### 1. Data Preprocessing
-
-The preprocessing scripts prepare the dataset for annotation, training, and evaluation.
-
-These are intended to run in order and are labelled numerically (`1_*.py`, `2_*.py`, etc.). Some may require AWS Access (see above).
-
-The initial ETL to ingest and reshape MMH's notes data is stored in [DAP's Airflow repo](https://github.com/LBHackney-IT/dap-airflow/blob/main/etl_scripts/housing/additional_needs/additional_needs_notes_reshape.py).
-
-
-### 2. Model Training
-
-Commands in this section are run from `dev/` after installing that package.
-
-There are two main models in this repo:
-
-- span classification for Additional Needs & person entity extraction;
-- relation classification for linking extracted needs to household members.
-
-Training scripts are located under:
+Training configuration is defined near the top of each training script:
 
 ```bash
 python spans/training/train_span.py
 python relations/training/relation_extraction.py
 ```
 
-Training configuration is defined using dataclasses at the top of each training script.
-
-The span model also includes a separate threshold sweep script:
+The span model has a separate threshold optimisation step. Run it against the completed span model directory:
 
 ```bash
 python spans/training/optimize_thresholds.py <path/to/final_model>
 ```
 
-Training is computationally expensive and GPU acceleration is recommended.
+For SageMaker training, review the settings in [`launch_sagemaker.py`](./launch_sagemaker.py), especially the AWS profile, S3 paths, role, and instance type, before starting a job.
 
-### 3. Evaluation
+### 3. Evaluate predictions
 
-Evaluation scripts run inference to generate model predictions and compare them against the annotated test set.
+Evaluation has two separate questions:
 
-Evaluation is split into two stages:
+1. **How well does a method find the right spans or relations?** Compare predictions with annotated ground truth using precision, recall, and F1.
+2. **Where does the pipeline fail?** Use the visualizer to inspect examples and understand missed spans, incorrect relations, and linking errors.
 
-1. **Prediction generation**
-   Each extraction approach produces predictions in a standard format.
-2. **Evaluation and comparison**
-   Predictions are compared against the ground truth annotations using Precision/Recall/F1 (see below).
-
-Evaluation does not require GPU acceleration (the span model takes ~5 minutes on CPU; the relation model ~10 minutes).
-
-#### Span Extraction Evaluation
-
-1. Generate predictions for each of the following models:
-   * regex-based baseline: `spans/eval/predict_regex.py`
-   * AWS Comprehend: `spans/eval/predict_comprehend.py`
-   * custom span classifier: `spans/eval/predict_model.py ..data/./data/models/<MODEL_NAME>/final_model/`
-   * gemini pre-annotations; (`utils/convert_gemini_annotations_to_predictions.py`)
-
-2. Compare and evaluate
-   `compare_eval_spans.py` loads the generated predictions and evaluates all approaches (configurable) against the test set and presents tables.
-
-#### Relation Extraction Evaluation
-
-1. Generate predictions for each of the following models:
-   * relation extractor
-   * closest match heuristic
-   _You can choose an input file for the spans (NER step). This will default to the gold standard spans, but you can choose any model's outputs. This can measure cascading errors._
-   ```bash
-   python relations/eval/predict_*.py [model_path] [<data/results/predicted/file>]
-   ```
-2. Compare and evaluate
-   `compare_eval_relations.py` loads the generated predictions and evaluates all configured approaches against the test set and presents tables.
-
-#### Entity Linking
-
-The entity linking heuristic script that writes CSV for the visualiser is:
+Generate span predictions with the scripts in [`spans/eval/`](./spans/eval/), then compare them with:
 
 ```bash
-python utils/match_needs_to_persons.py
+python spans/eval/compare_eval_spans.py
 ```
 
-It is not quantitatively evaluated due to a lack of annotated ground truth data. Results can be manually inspected using the visualiser (see below).
+Available span approaches include the regex baseline, AWS Comprehend, the custom span model, and converted Gemini annotations. The exact input and output locations are defined in each script's configuration.
 
-### 4. Visualisation
+Generate relation predictions with the scripts in [`relations/eval/`](./relations/eval/):
 
-You can visually compare model outputs to the gold standard using the debugging UI. See [visualizer/README.md](../visualizer/README.md)
+```bash
+python relations/eval/predict_model.py <path/to/model> [path/to/span_predictions.json]
+python relations/eval/compare_eval_relations.py
+```
+
+The optional span prediction file lets you measure cascading errors: use gold spans to evaluate relation extraction in isolation, or predicted spans to measure end-to-end behavior.
+
+### 4. Inspect entity linking
+
+The heuristic linker can write inspection data for the visualizer:
+
+```bash
+python utils/match_needs_to_persons.py <path/to/data.json>
+```
+
+Entity linking is not currently evaluated with precision/recall because there is no labelled ground-truth linking dataset. Treat visual inspection as diagnostic evidence, not as a directly comparable model score.
+
+### 5. View results
+
+Use the [visualizer](../visualizer/README.md) to compare predictions with annotations and inspect relation and attribution behavior.
+
+## Promoting a Model
+
+Before using a model in production, check more than its headline F1 score:
+
+- label names and label ordering match the production model package;
+- confidence thresholds have been generated and copied with the model;
+- tokenizer and maximum sequence length are compatible;
+- predictions use the production span/relation schema;
+- representative errors have been reviewed in the visualizer;
+- production inference tests pass after the model is packaged.
+
+The dissertation contains the full research rationale and experiment history. This README is deliberately only the runbook: what to run, what it produces, and what must be checked before promotion.
