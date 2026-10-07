@@ -14,7 +14,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from common.paths import PROCESSED, PREDICTIONS, TEST_DATA
 from common.logging import setup_logger
 from common.json_helpers import load_json, save_json
-from shared.relation_model import insert_markers, SPECIAL_TOKENS
+from relations.relation_model import insert_markers, SPECIAL_TOKENS
 
 
 @dataclass

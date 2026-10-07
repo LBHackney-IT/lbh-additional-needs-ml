@@ -17,7 +17,7 @@ from tqdm import tqdm
 from common.paths import METRICS, PREDICTIONS, VAL_DATA, TEST_DATA
 from common.logging import setup_logger
 from common.json_helpers import load_json, save_json
-from shared.span_model import SpanClassifier, run_inference, threshold_and_format, load_thresholds
+from spans.span_model import SpanClassifier, run_inference, threshold_and_format, load_thresholds
 
 
 @dataclass

@@ -14,8 +14,6 @@ from common.json_helpers import load_json, save_json
 from common.graph_helpers import plot_confusion_matrix
 from shared.evaluators import SpanEvaluator, build_confusion_matrix
 
-
-
 @dataclass
 class Config:
     val_path: Path = TEST_DATA

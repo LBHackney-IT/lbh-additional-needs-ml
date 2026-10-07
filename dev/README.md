@@ -77,14 +77,10 @@ Evaluation does not require GPU acceleration (the span model takes ~5 minutes on
 #### Span Extraction Evaluation
 
 1. Generate predictions for each of the following models:
-   * regex-based baseline;
-   * transformer span classifier;
-   * AWS Comprehend;
+   * regex-based baseline: `spans/eval/predict_regex.py`
+   * AWS Comprehend: `spans/eval/predict_comprehend.py`
+   * custom span classifier: `spans/eval/predict_model.py ..data/./data/models/<MODEL_NAME>/final_model/`
    * gemini pre-annotations; (`utils/convert_gemini_annotations_to_predictions.py`)
-
-   ```bash
-   python spans/eval/predict_*.py [<data/results/predicted/file>]
-   ```
 
 2. Compare and evaluate
    `compare_eval_spans.py` loads the generated predictions and evaluates all approaches (configurable) against the test set and presents tables.
@@ -96,7 +92,7 @@ Evaluation does not require GPU acceleration (the span model takes ~5 minutes on
    * closest match heuristic
    _You can choose an input file for the spans (NER step). This will default to the gold standard spans, but you can choose any model's outputs. This can measure cascading errors._
    ```bash
-   python relations/eval/predict_*.py
+   python relations/eval/predict_*.py [model_path] [<data/results/predicted/file>]
    ```
 2. Compare and evaluate
    `compare_eval_relations.py` loads the generated predictions and evaluates all configured approaches against the test set and presents tables.

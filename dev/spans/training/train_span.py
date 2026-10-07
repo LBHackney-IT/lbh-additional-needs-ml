@@ -16,7 +16,7 @@ from safetensors.torch import save_file
 from common.paths import MODELS, PROCESSED, TRAIN_DATA, VAL_DATA
 from common.logging import setup_logger, FileLogCallback
 from common.json_helpers import load_json, save_json
-from shared.span_model import SpanClassifier, generate_candidates
+from spans.span_model import SpanClassifier, generate_candidates
 
 
 # --- Config ---

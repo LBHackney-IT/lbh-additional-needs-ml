@@ -32,7 +32,7 @@ from transformers import (
 from common.paths import MODELS, PROCESSED, TRAIN_DATA, VAL_DATA
 from common.logging import setup_logger, FileLogCallback
 from common.json_helpers import save_json
-from shared.relation_model import insert_markers, SPECIAL_TOKENS
+from relations.relation_model import insert_markers, SPECIAL_TOKENS
 
 
 # --- Config ---
