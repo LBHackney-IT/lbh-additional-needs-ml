@@ -16,7 +16,7 @@ from common.paths import VAL_DATA
 from common.logging import setup_logger
 from common.json_helpers import load_json, save_json
 from shared.evaluators import SpanEvaluator
-from shared.span_model import SpanClassifier, generate_candidates, spans_overlap
+from spans.span_model import SpanClassifier, generate_candidates, spans_overlap
 
 
 @dataclass
