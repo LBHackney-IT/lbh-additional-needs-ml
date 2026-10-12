@@ -19,7 +19,7 @@ Athena records -> span extraction -> relation extraction -> entity linking -> pa
 | Functionality | Dir/File | Responsibility |
 | --- | --- | --- |
 | Composition root (`Program.cs` in a .NET project) | `src/run_inference.py` | Builds dependencies, configures the job, and runs batches |
-| Infrastructure | `src/data/` | Reads production records through Athena |
+| Infrastructure gateway | `src/gateway/` | Reads production records through Athena |
 | Domain definitions / DTOs | `src/common/schemas.py` | Defines types for spans, relations, links, household members, and notes |
 | Application services / use cases | `src/pipelines/` | Coordinates span extraction, relation extraction, and linking |
 | ML implementations | `src/classifiers/` | Contains custom transformer model components used by the pipelines |
@@ -32,12 +32,12 @@ inference/
 ├── src/
 │   ├── run_inference.py          # Composition root and batch orchestration
 │   ├── common/                   # Schemas, logging, and JSON helpers
-│   ├── data/                     # Athena record source and input shaping
+│   ├── gateway/                  # Athena record source and input shaping
 │   ├── classifiers/              # Low-level model implementations
 │   └── pipelines/                # Production model wrappers and business pipeline stages
 ├── tests/
 │   ├── common/                   # Schema and contract tests
-│   ├── data/                     # Athena adapter tests
+│   ├── gateway/                  # Athena adapter tests
 │   ├── classifiers/              # Low-level model tests
 │   ├── pipelines/                # Production pipeline behavior and rule tests
 │   └── test_run_inference.py     # End-to-end orchestration tests with mocked stages
@@ -139,4 +139,15 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
 ruff check src tests
+
+# Run locally (requires staging AWS credentials)
+python src/run_inference.py \
+  --athena-database housing-refined-zone \
+  --athena-table additional_needs_notes_reshaped \
+  --athena-workgroup housing \
+  --output-dir ./data/output
+
+# Docker Build & Run
+docker build -t housing-additional-needs-ml .
+docker run --rm -v $(pwd)/data:/app/data housing-additional-needs-ml
 ```
