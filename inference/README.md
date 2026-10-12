@@ -1,91 +1,142 @@
 # Production Inference
 
-This folder contains the production batch execution pipeline for extracting Additional Needs from housing case notes. Loads trained model artifacts and writes validated, partitioned Parquet/JSON predictions.
+This folder contains the production batch application that extracts Additional Needs from housing case notes.
 
-> **Note:** Research and training code reside in `dev/`. Keep production execution changes inside `inference/`.
+The application runs three stages:
 
----
+```text
+Athena records -> span extraction -> relation extraction -> entity linking -> partitioned output
+```
 
-## 1. Architecture Overview
+- **NER (`src/pipelines/span_classifier_pipeline.py`):** Identifies text mentions (person_name, person_role, need_category)
+- **RE (`src/pipelines/relation_classifier_pipeline.py`):** Pairs candidate need and person mentions within the same note.
+- **EL (`src/pipelines/entity_linker.py`):** Deterministic business logic mapping person mentions to household member IDs (excludes minors <18; falls back to tenure-level links).   
 
-The pipeline processes case notes through 3-stages:
+## Folder Structure
 
 
-![A three-stage entity attribution pipeline: NER, relation extraction, and entity linking are performed as sequential, independently trained stages](../docs/pipeline-overview.png)
 
+| Functionality | Dir/File | Responsibility |
+| --- | --- | --- |
+| Composition root (`Program.cs` in a .NET project) | `src/run_inference.py` | Builds dependencies, configures the job, and runs batches |
+| Infrastructure | `src/data/` | Reads production records through Athena |
+| Domain definitions / DTOs | `src/common/schemas.py` | Defines types for spans, relations, links, household members, and notes |
+| Application services / use cases | `src/pipelines/` | Coordinates span extraction, relation extraction, and linking |
+| ML implementations | `src/classifiers/` | Contains custom transformer model components used by the pipelines |
+| Unit and integration tests | `tests/` | Unit tests |
 
-* **NER (Span Classifier):** Identifies text mentions (`person_name`, `person_role`, or `need_category`).
-* **RE (Relation Classifier):** Pairs need mentions with person mentions within the same note.
-* **EL (Entity Linker):** Deterministic business logic mapping predicted person mentions to actual household member IDs (excludes minors <18; falls back to `tenure_id` if unlinked).
+### Directory Map
 
----
+```text
+inference/
+├── src/
+│   ├── run_inference.py          # Composition root and batch orchestration
+│   ├── common/                   # Schemas, logging, and JSON helpers
+│   ├── data/                     # Athena record source and input shaping
+│   ├── classifiers/              # Low-level model implementations
+│   └── pipelines/                # Production model wrappers and business pipeline stages
+├── tests/
+│   ├── common/                   # Schema and contract tests
+│   ├── data/                     # Athena adapter tests
+│   ├── classifiers/              # Low-level model tests
+│   ├── pipelines/                # Production pipeline behavior and rule tests
+│   └── test_run_inference.py     # End-to-end orchestration tests with mocked stages
+├── Dockerfile                    # Production container definition
+├── pyproject.toml                # Package, dependency, pytest, and Ruff configuration
+└── requirements.txt              # Production installation entry point
+```
 
-## 2. Directory & Module Mapping
+## Data Contracts
 
-| To change / debug... | Edit this module |
-| :--- | :--- |
-| **Span Extraction (NER)** | `src/classifiers/span_classifier.py` |
-| **Relation Extraction (RE)** | `src/classifiers/relation_classifier.py` |
-| **Linking & Business Rules (EL)** | `src/classifiers/entity_linker.py` |
-| **Input/Output Schemas** | `src/schemas.py` |
-| **Batching & Model Loading** | `src/run_inference.py` |
+### Input Schema (Athena: `housing-refined-zone.additional_needs_notes_reshaped`)
 
----
+Production data is read through Athena. The canonical record passed to the pipelines is shaped like this:
 
-## 3. Data Schemas
-
-### Input Expectation (`*.json`)
 ```json
 {
   "id": "note-123",
   "text": "Mrs Smith requires ground-floor accommodation.",
   "tenure_ids": ["tenure-456"],
-  "household_members": [{"id": "person-789", "fullName": "Mrs Smith", "dateOfBirth": "1980-01-01"}]
+  "household_members": [
+    {
+      "id": "person-789",
+      "fullName": "Mrs Smith",
+      "dateOfBirth": "1980-01-01"
+    }
+  ]
 }
-
 ```
 
-### Output Format (`part_*.json` / Parquet)
+See the [Data Platform repo](https://github.com/LBHackney-IT/Data-Platform/blob/main/terraform/core/71-housing-additional-needs-ml.tf) for the infrastructure and the [airflow repo](https://github.com/LBHackney-IT/dap-airflow/blob/main/etl_scripts/housing/additional_needs/additional_needs_notes_reshape.py) for the upstream ETL.
+
+## Output Schema (`/opt/ml/processing/output/part_*.json`)
+
+The application writes partitioned JSON files to its SageMaker Processing output directory.
 
 ```json
 {
+{
   "id": "note-123",
-  "needs": [...],
-  "persons": [...],
-  "relations": [...],
-  "links": [{"target_id": "person-789", "target_type": "person", "method": "fuzzy_name"}],
+  "needs": [
+     {
+        "id": "need-1",
+        "text": "hoarding issue",
+        "start": 187,
+        "end": 285,
+        "label": "housing_conditions_hoarding"
+    },
+  ],
+  "persons": [
+    {
+        "id": "person-1",
+        "text": "john smith",
+        "start": 139,
+        "end": 145,
+        "label": "person_name"
+    },
+  ],
+  "relations": [
+    {
+      "from": "need-1",
+      "to": "person-1"
+    }
+  ],
+  "links": [
+    {
+      "need_id": "need-1",
+      "target_id": "person-789",
+      "target_type": "person",
+      "confidence": 0.95,
+      "method": "fuzzy_name"
+    }
+  ],
+  "tenure_ids":[
+    "b6468897-074d-4689-84ac-66d8a5891411"
+  ],
+  "household_members":[
+    {
+      "id": "person-789",
+      "type": "person",
+      "fullName": "John Smith",
+      "isResponsible": true,
+      "dateOfBirth": "1943-01-01 00:00:00",
+      "personTenureType": "Tenant"
+    }
+  ],
   "pipeline_run_at": "2026-10-07T16:00:00Z"
 }
-
+}
 ```
 
----
+## Local Setup and Tests
 
-## 4. Troubleshooting Recommendations
-
-| Symptom | Primary Check | Action |
-| --- | --- | --- |
-| **Job fails immediately** | Model path / S3 URIs | Verify `<model_root>/span/final_model/` and `relation/final_model/` exist. |
-| **Empty output directory** | Input file discovery | Confirm input folder contains valid `*.json` records. |
-| **Spans empty (`needs`/`persons`)** | Thresholds & Labels | Check confidence thresholds and input text formatting in `span_classifier.py`. |
-| **Relations empty** | Span co-occurrence | Ensure both a `need` and a `person` span exist in the same note. |
-| **All links fall back to tenure** | Linking rules / Household data | Check `dateOfBirth` (<18 filter) or fuzzy match score in `entity_linker.py`. |
-| **GPU OOM Errors** | Memory allocation | Lower `batch_size` or max token sequence length in `run_inference.py`. |
-
----
-
-## 5. Local Execution & Docker
+Run commands from this `/inference`, not from the repository root:
 
 ```bash
-# Run unit tests
-pip install -e .[dev]
-pytest tests/
-
-# Test entrypoint locally
-python src/run_inference.py --input-dir ./data/sample --output-dir ./data/output
-
-# Docker Build & Test
-docker build -t housing-additional-needs-ml .
-docker run --rm -v $(pwd)/data:/app/data housing-additional-needs-ml
-
+# Environment setup & tests
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q
+ruff check src tests
 ```
