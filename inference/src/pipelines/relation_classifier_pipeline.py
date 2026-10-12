@@ -8,8 +8,8 @@ around one (need, person) pair.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -23,86 +23,101 @@ SPECIAL_TOKENS = ["[N_START]", "[N_END]", "[P_START]", "[P_END]"]
 CandidatePair = tuple[str, Span, Span]
 
 
-# --- Helpers ---
-def insert_markers(text: str, need: Span, person: Span) -> str:
-    """Inject entity marker tokens around candidate need and person spans.
-
-    Inserts tokens from right to left so character offset locations
-    for earlier spans stay correct.
-
-    Args:
-        text: Raw case note document string.
-        need: Need span with 'start' and 'end' character offsets.
-        person: Person span with 'start' and 'end' character offsets.
-
-    Returns:
-        Document string with [N_START], [N_END], [P_START], and [P_END] markers injected.
-    """
-    spans = sorted(
-        [
-            (need.start, need.end, "[N_START]", "[N_END]"),
-            (person.start, person.end, "[P_START]", "[P_END]"),
-        ],
-        key=lambda x: x[0],
-        reverse=True,
-    )
-
-    marked_text = text
-    for start, end, t_start, t_end in spans:
-        marked_text = (
-            marked_text[:start] + t_start + marked_text[start:end] + t_end + marked_text[end:]
-        )
-    return marked_text
-
-
-# --- Classes ---
-@dataclass
 class RelationClassifierPipeline:
-    """Production runtime pipeline for pair-wise relation classification.
-
-    Loads ALBERT sequence classification weights and predicts binary relation probability
-    between candidate need and person spans.
-
-    Args:
-        model_dir: Path to directory containing model weights and configs.
-        max_length: Maximum sequence length per window.
-        stride: Overlap token length for sliding window chunking.
-        threshold: Minimum confidence score required to form a valid relation.
-        device: Torch execution device (CPU, CUDA, or MPS).
-    """
-
-    model_dir: Path = field(
-        default_factory=lambda: Path(
-            os.environ.get("RELATION_MODEL_DIR", DEFAULT_MODEL_ROOT / "relation" / "final_model")
+    def __init__(
+        self,
+        model_dir: Path | str | None = None,
+        max_length: int | None = None,
+        stride: int = 128,
+        threshold: float = 0.5,
+        device: torch.device | None = None,
+        # DEPENDENCY INJECTIONS
+        tokenizer: Any | None = None,
+        model: Any | None = None,
+    ):
+        # 1. Set simple configuration
+        self.stride = stride
+        self.threshold = threshold
+        self.model_dir = Path(
+            model_dir or os.environ.get("RELATION_MODEL_DIR", "DEFAULT_MODEL_ROOT")
         )
-    )
-    max_length: int | None = None
-    stride: int = 128
-    threshold: float = 0.5
-    device: torch.device | None = None
 
-    def __post_init__(self):
-        """Initialize tokenizer, classification model, sequence limits, and hardware device."""
-        # Choose accelerator
-        self.device = self.device or (
+        # 2. Resolve hardware device
+        self.device = device or (
             torch.device("cuda")
             if torch.cuda.is_available()
             else torch.device("mps")
             if torch.backends.mps.is_available()
             else torch.device("cpu")
         )
-        # Training run config
-        self.model_dir = Path(self.model_dir)
+
+        # 3. Resolve max_length
+        self.max_length = max_length
         if self.max_length is None:
+            # (Assuming load_json is defined elsewhere)
             run_config = load_json(self.model_dir.parent / "config.json")
             self.max_length = run_config["max_length"]
-        # Tokenizer and weights
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, add_prefix_space=False)
-        self.model = (
-            AutoModelForSequenceClassification.from_pretrained(self.model_dir)
-            .to(self.device)
-            .eval()
+
+        # 4. Inject or load heavy dependencies
+        self.tokenizer = tokenizer or AutoTokenizer.from_pretrained(
+            self.model_dir, add_prefix_space=False
         )
+
+        self.model = model
+        if self.model is None:
+            self.model = (
+                AutoModelForSequenceClassification.from_pretrained(self.model_dir)
+                .to(self.device)
+                .eval()
+            )
+
+    # --- Helpers ---
+    @staticmethod
+    def _insert_markers(text: str, need: Span, person: Span) -> str:
+        """Inject entity marker tokens around candidate need and person spans.
+
+        Inserts tokens from right to left so character offset locations
+        for earlier spans stay correct.
+
+        Args:
+            text: Raw case note document string.
+            need: Need span with 'start' and 'end' character offsets.
+            person: Person span with 'start' and 'end' character offsets.
+
+        Returns:
+            Document string with [N_START], [N_END], [P_START], and [P_END] markers injected.
+        """
+        spans = [
+            (need.start, need.end, "[N_START]", "[N_END]"),
+            (person.start, person.end, "[P_START]", "[P_END]"),
+        ]
+        for start, end, _start_marker, _end_marker in spans:
+            if not 0 <= start <= end <= len(text):
+                raise ValueError(f"Span offsets are outside the source text: {start}:{end}")
+
+        # Crossing spans (e.g. jane has dementia: [jane has], [has dementia]) cannot be represented by nested marker tokens without
+        # duplicating or splitting source text. Contained/nested spans (e.g. [jane has dementia], [jane], [dementia]) are supported.
+        first, second = spans
+        if (first[0] < second[0] < first[1] < second[1]) or (
+            second[0] < first[0] < second[1] < first[1]
+        ):
+            raise ValueError("Need and person spans overlap without containment")
+
+        events: dict[int, list[tuple[int, int, str]]] = {}
+        for start, end, start_marker, end_marker in spans:
+            # End markers are emitted before start markers at the same offset.
+            # Longer spans open first; shorter spans close first.
+            events.setdefault(start, []).append((1, -(end - start), start_marker))
+            events.setdefault(end, []).append((0, end - start, end_marker))
+
+        marked_parts: list[str] = []
+        cursor = 0
+        for position in sorted(events):
+            marked_parts.append(text[cursor:position])
+            marked_parts.extend(marker for _, _, marker in sorted(events[position]))
+            cursor = position
+        marked_parts.append(text[cursor:])
+        return "".join(marked_parts)
 
     @staticmethod
     def _build_candidate_pairs(
@@ -120,6 +135,7 @@ class RelationClassifierPipeline:
         """
         return [(text, need, person) for need in needs for person in persons]
 
+    # --- Public ---
     def predict_from_spans(
         self, text: str, needs: list[Span], persons: list[Span]
     ) -> list[Relation]:
@@ -141,7 +157,7 @@ class RelationClassifierPipeline:
 
         # Add markers for each person x need pair
         marked_texts = [
-            insert_markers(text, need, person) for text, need, person in candidate_pairs
+            self._insert_markers(text, need, person) for text, need, person in candidate_pairs
         ]
 
         # Tokenize with sliding window chunking
