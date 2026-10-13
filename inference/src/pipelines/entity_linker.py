@@ -19,7 +19,7 @@ from datetime import date, datetime
 from typing import TypedDict
 from zoneinfo import ZoneInfo
 
-from src.common.schemas import EnrichedNote, HouseholdMember, Link
+from src.common.schemas import EnrichedNote, HouseholdMember, Link, Relation
 
 
 class ResolveResult(TypedDict):
@@ -45,59 +45,11 @@ class DeterministicEntityLinker:
         self.leaseholder_role = leaseholder_role
         self.logger = logger
 
+    # --- Static ---
     @staticmethod
     def _fuzzy(a: str, b: str) -> float:
         """Compute case-insensitive string similarity ratio in [0, 1]."""
         return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
-
-    def _resolve_span(
-        self,
-        extracted: str,
-        entity_type: str,
-        household: list[HouseholdMember],
-    ) -> ResolveResult:
-        """Match an extracted person span against a household member ID."""
-        text_lower = extracted.lower().strip()
-
-        if entity_type == "person_name":
-            matches = [(self._fuzzy(extracted, p.fullName or ""), p.id) for p in household]
-            if matches:
-                best_score, best_id = max(matches, key=lambda x: x[0])
-                if best_score >= self.fuzzy_similarity:
-                    return ResolveResult(
-                        target_id=best_id,
-                        confidence=best_score,
-                        method="fuzzy_name",
-                    )
-
-        elif entity_type == "person_role":
-            if self._is_role_mention(text_lower, self.tenant_role):
-                tenants = [
-                    p
-                    for p in household
-                    if str(p.personTenureType or "").lower() == self.tenant_role
-                ]
-                if len(tenants) == 1:
-                    return ResolveResult(
-                        target_id=tenants[0].id,
-                        confidence=1.0,
-                        method="role_tenant",
-                    )
-
-            if self._is_role_mention(text_lower, self.leaseholder_role):
-                leaseholders = [
-                    p
-                    for p in household
-                    if str(p.personTenureType or "").lower() == self.leaseholder_role
-                ]
-                if len(leaseholders) == 1:
-                    return ResolveResult(
-                        target_id=leaseholders[0].id,
-                        confidence=1.0,
-                        method="role_leaseholder",
-                    )
-
-        return ResolveResult(target_id=None, confidence=0.0, method=None)
 
     @staticmethod
     def _is_role_mention(text: str, role: str) -> bool:
@@ -117,78 +69,150 @@ class DeterministicEntityLinker:
         age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         return age < 18
 
+    @staticmethod
+    def _unresolved() -> ResolveResult:
+        return ResolveResult(target_id=None, confidence=0.0, method=None)
+
+    # --- Helpers ---
+    def _resolve_name(self, extracted: str, household: list[HouseholdMember]) -> ResolveResult:
+        """Resolve a person-name span using the strongest fuzzy match."""
+        matches = [(self._fuzzy(extracted, p.fullName or ""), p.id) for p in household]
+        if not matches:
+            return self._unresolved()
+
+        best_score, best_id = max(matches, key=lambda item: item[0])
+        if best_score < self.fuzzy_similarity:
+            return self._unresolved()
+
+        return ResolveResult(target_id=best_id, confidence=best_score, method="fuzzy_name")
+
+    def _resolve_role(self, extracted: str, household: list[HouseholdMember]) -> ResolveResult:
+        """Resolve a tenant or leaseholder span when it is unique in household."""
+        role_matches = (
+            (self.tenant_role, "role_tenant"),
+            (self.leaseholder_role, "role_leaseholder"),
+        )
+        for role, method in role_matches:
+            if not self._is_role_mention(extracted, role):
+                continue
+
+            matches = [
+                person for person in household if str(person.personTenureType or "").lower() == role
+            ]
+            if len(matches) == 1:
+                return ResolveResult(
+                    target_id=matches[0].id,
+                    confidence=1.0,
+                    method=method,
+                )
+
+        return self._unresolved()
+
+    def _resolve_span(
+        self,
+        extracted: str,
+        entity_type: str,
+        household: list[HouseholdMember],
+    ) -> ResolveResult:
+        """Match an extracted person span against a household member ID."""
+        if entity_type == "person_name":
+            return self._resolve_name(extracted, household)
+        if entity_type == "person_role":
+            return self._resolve_role(extracted, household)
+        return self._unresolved()
+
+    def _process_relation(
+        self,
+        rel: Relation,
+        needs_lookup: dict,
+        persons_lookup: dict,
+        household: list[HouseholdMember],
+        household_lookup: dict,
+        record_id: str,
+    ) -> Link | None:
+        """Process a single relation and return a Link if valid and resolved."""
+        need_id, person_ref_id = rel.from_id, rel.to
+
+        # Check links are valid
+        if need_id not in needs_lookup or person_ref_id not in persons_lookup:
+            if self.logger:
+                self.logger.warning(
+                    "Skipping unknown relation IDs: %s -> %s in note %s",
+                    need_id,
+                    person_ref_id,
+                    record_id,
+                )
+            return None
+
+        p_pred = persons_lookup[person_ref_id]
+        n_label = needs_lookup[need_id].label
+        res = self._resolve_span(p_pred.text, p_pred.label.lower(), household)
+        target_id = res["target_id"]
+
+        # Skip links with property-level needs, minors, or if no link found
+        if not target_id:
+            return None
+
+        if n_label.startswith("property_level") and self.logger:
+            self.logger.warning(
+                "%s label linked to %s in note ID %s", n_label, p_pred.label.lower(), record_id
+            )
+
+        if self._is_minor(household_lookup.get(target_id)):
+            if self.logger:
+                self.logger.info("Excluding minor person %s for need %s", target_id, need_id)
+            return None
+
+        if res["method"]:
+            return Link(
+                need_id=need_id,
+                target_id=target_id,
+                target_type="person",
+                confidence=res["confidence"],
+                method=res["method"],
+            )
+
+        return None
+
+    def _generate_fallback_links(
+        self, record: EnrichedNote, resolved_needs: set[str]
+    ) -> list[Link]:
+        """Generate fallback tenure links for any needs that remain unresolved."""
+        return [
+            Link(
+                need_id=need.id,
+                target_id=tenure_id,
+                target_type="tenure",
+                confidence=0.0,
+                method="tenure_fallback",
+            )
+            for need in record.needs
+            if need.id not in resolved_needs
+            for tenure_id in record.tenure_ids
+        ]
+
+    # --- Public ---
     def link(self, record: EnrichedNote) -> list[Link]:
         """Resolve all predicted needs in an EnrichedNote to person or tenure targets."""
         household = record.household_members
         household_lookup = {hm.id: hm for hm in household}
         needs_lookup = {n.id: n for n in record.needs}
         persons_lookup = {p.id: p for p in record.persons}
-        tenure_ids = record.tenure_ids
 
-        links: list[Link] = []
-
-        # 1. Resolve relations to person targets
-        for rel in record.relations:
-            need_id, person_ref_id = rel.from_id, rel.to
-
-            if need_id not in needs_lookup or person_ref_id not in persons_lookup:
-                if self.logger:
-                    self.logger.warning(
-                        "Skipping unknown relation IDs: %s -> %s in note %s",
-                        need_id,
-                        person_ref_id,
-                        record.id,
-                    )
-                continue
-
-            p_pred = persons_lookup[person_ref_id]
-            extracted_text = p_pred.text
-            entity_label = p_pred.label.lower()
-            n_label = needs_lookup[need_id].label
-
-            if n_label.startswith("property_level") and self.logger:
-                self.logger.warning(
-                    "%s label linked to %s in note ID %s",
-                    n_label,
-                    entity_label,
-                    record.id,
+        # 1. Attempt to resolve relations to person targets
+        links: list[Link] = [
+            link_obj
+            for rel in record.relations
+            if (
+                link_obj := self._process_relation(
+                    rel, needs_lookup, persons_lookup, household, household_lookup, record.id
                 )
+            )
+            is not None
+        ]
 
-            res = self._resolve_span(extracted_text, entity_label, household)
-            target_id = res["target_id"]
-
-            # O(1) minor check using dictionary lookup
-            if target_id and self._is_minor(household_lookup.get(target_id)):
-                if self.logger:
-                    self.logger.info("Excluding minor person %s for need %s", target_id, need_id)
-                continue
-
-            if target_id and res["method"]:
-                links.append(
-                    Link(
-                        need_id=need_id,
-                        target_id=target_id,
-                        target_type="person",
-                        confidence=res["confidence"],
-                        method=res["method"],
-                    )
-                )
-
-        # 2. Fallback unresolved needs to tenure targets
+        # 2. Link unresolved needs to tenure targets
         resolved_needs = {link.need_id for link in links}
-        for need in record.needs:
-            if need.id in resolved_needs:
-                continue
-
-            for tenure_id in tenure_ids:
-                links.append(
-                    Link(
-                        need_id=need.id,
-                        target_id=tenure_id,
-                        target_type="tenure",
-                        confidence=0.0,
-                        method="tenure_fallback",
-                    )
-                )
+        links.extend(self._generate_fallback_links(record, resolved_needs))
 
         return links
