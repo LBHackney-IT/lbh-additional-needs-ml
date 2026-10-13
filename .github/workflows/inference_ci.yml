@@ -5,6 +5,10 @@ on:
     paths:
       - "inference/**"
       - ".github/workflows/inference_ci.yml"
+  pull_request:
+    paths:
+      - "inference/**"
+      - ".github/workflows/inference_ci.yml"
 
 jobs:
   test:
