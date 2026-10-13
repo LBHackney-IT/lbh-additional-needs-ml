@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "additional-needs-inference"
 version = "0.1.0"
 description = "Production batch inference container for Additional Needs extraction"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26,<2",
     "pandas>=2.2",
@@ -40,7 +40,7 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 # Select rules: Pyflakes (F), pycodestyle (E, W), isort (I), UPgrade syntax (UP), Pydantic (N)
