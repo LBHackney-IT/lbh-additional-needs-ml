@@ -14,6 +14,7 @@ from typing import Any
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from src.common.device import resolve_device
 from src.common.json_helpers import load_json
 from src.common.schemas import Relation, Span
 
@@ -43,13 +44,7 @@ class RelationClassifierPipeline:
         )
 
         # 2. Resolve hardware device
-        self.device = device or (
-            torch.device("cuda")
-            if torch.cuda.is_available()
-            else torch.device("mps")
-            if torch.backends.mps.is_available()
-            else torch.device("cpu")
-        )
+        self.device = resolve_device(device)
 
         # 3. Resolve max_length
         self.max_length = max_length

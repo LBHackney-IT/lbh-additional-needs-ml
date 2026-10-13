@@ -18,6 +18,7 @@ from safetensors.torch import load_file
 from transformers import AutoTokenizer
 
 from src.classifiers.span_classifier import SpanClassifier
+from src.common.device import resolve_device
 from src.common.json_helpers import load_json
 from src.common.schemas import Span, SpanPredictions
 
@@ -51,14 +52,8 @@ class SpanClassifierPipeline:
         self.stride = stride
         self.person_labels = person_labels or ["person_role", "person_name"]
 
-        # 2. Resolve Hardware
-        self.device = device or (
-            torch.device("cuda")
-            if torch.cuda.is_available()
-            else torch.device("mps")
-            if torch.backends.mps.is_available()
-            else torch.device("cpu")
-        )
+        # 2. Resolve hardware
+        self.device = resolve_device(device)
 
         # 2. Inject or load Configs
         self.model_dir = Path(
@@ -123,7 +118,7 @@ class SpanClassifierPipeline:
                 thresholds_path,
                 len(label_list),
             )
-        return {label: 0.5 for label in label_list}
+        return dict.fromkeys(label_list, 0.5)
 
     @staticmethod
     def _generate_candidates(

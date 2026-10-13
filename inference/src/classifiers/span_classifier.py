@@ -39,6 +39,7 @@ class SpanClassifier(nn.Module):
         self.backbone = AutoModel.from_pretrained(base_model)
         self.classifier = nn.Linear(self.backbone.config.hidden_size * 2, num_labels + 1)
         self.class_weight = class_weight
+        self.loss_function = nn.CrossEntropyLoss(weight=class_weight)
 
     def forward(
         self,
@@ -75,9 +76,5 @@ class SpanClassifier(nn.Module):
 
         # 3. Apply classification head, return logits and optionally loss.
         logits = self.classifier(torch.cat([start_vecs, end_vecs], dim=1))
-        loss = (
-            nn.CrossEntropyLoss(weight=self.class_weight)(logits, labels)
-            if labels is not None
-            else None
-        )
+        loss = self.loss_function(logits, labels) if labels is not None else None
         return {"loss": loss, "logits": logits} if loss is not None else {"logits": logits}
