@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from src.common.schemas import Span, SpanPredictions
-from src.pipelines.span_classifier_pipeline import SpanClassifierPipeline
+from src.services.span_classifier_pipeline import SpanClassifierPipeline
 
 
 # -- Helpers --

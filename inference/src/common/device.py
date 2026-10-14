@@ -1,4 +1,4 @@
-"""Runtime device selection for model pipelines."""
+"""Runtime device selection for inference services."""
 
 from __future__ import annotations
 

@@ -2,15 +2,16 @@
 
 This folder contains the production batch application that extracts Additional Needs from housing case notes.
 
-The application runs three stages:
+The application runs four stages:
 
 ```text
-Athena records -> span extraction -> relation extraction -> entity linking -> partitioned output
+Athena rows -> note preprocessing -> span extraction -> relation extraction -> entity linking -> partitioned output
 ```
 
-- **NER (`src/pipelines/span_classifier_pipeline.py`):** Identifies text mentions (person_name, person_role, need_category)
-- **RE (`src/pipelines/relation_classifier_pipeline.py`):** Pairs candidate need and person mentions within the same note.
-- **EL (`src/pipelines/entity_linker.py`):** Deterministic business logic mapping person mentions to household member IDs (excludes minors <18; falls back to tenure-level links).   
+- **Preprocessing (`src/services/note_preprocessor.py`):** Groups note-tenure rows into one record per note. Acronym expansion will run here too; the models were trained on expanded text.
+- **NER (`src/services/span_classifier_pipeline.py`):** Identifies text mentions (person_name, person_role, need_category)
+- **RE (`src/services/relation_classifier_pipeline.py`):** Pairs candidate need and person mentions within the same note.
+- **EL (`src/services/entity_linker.py`):** Deterministic business logic mapping person mentions to household member IDs (excludes minors <18; falls back to tenure-level links).   
 
 ## Folder Structure
 
@@ -21,8 +22,8 @@ Athena records -> span extraction -> relation extraction -> entity linking -> pa
 | Composition root (`Program.cs` in a .NET project) | `src/run_inference.py` | Builds dependencies, configures the job, and runs batches |
 | Infrastructure gateway | `src/gateway/` | Reads production records through Athena |
 | Domain definitions / DTOs | `src/common/schemas.py` | Defines types for spans, relations, links, household members, and notes |
-| Application services / use cases | `src/pipelines/` | Coordinates span extraction, relation extraction, and linking |
-| ML implementations | `src/classifiers/` | Contains custom transformer model components used by the pipelines |
+| Application services | `src/services/` | Coordinates span extraction, relation extraction, and linking |
+| ML implementations | `src/classifiers/` | Contains custom transformer model components used by the services |
 | Unit and integration tests | `tests/` | Unit tests |
 
 ### Directory Map
@@ -32,14 +33,14 @@ inference/
 ├── src/
 │   ├── run_inference.py          # Composition root and batch orchestration
 │   ├── common/                   # Schemas, logging, and JSON helpers
-│   ├── gateway/                  # Athena record source and input shaping
+│   ├── gateway/                  # Athena record source
 │   ├── classifiers/              # Low-level model implementations
-│   └── pipelines/                # Production model wrappers and business pipeline stages
+│   └── services/                 # Preprocessing, model wrappers, and entity linking
 ├── tests/
 │   ├── common/                   # Schema and contract tests
 │   ├── gateway/                  # Athena adapter tests
 │   ├── classifiers/              # Low-level model tests
-│   ├── pipelines/                # Production pipeline behavior and rule tests
+│   ├── services/                 # Preprocessing, model wrapper, and linker tests
 │   └── test_run_inference.py     # End-to-end orchestration tests with mocked stages
 ├── Dockerfile                    # Production container definition
 ├── pyproject.toml                # Package, dependency, pytest, and Ruff configuration
@@ -64,7 +65,7 @@ the following columns:
 - `flag_inactive`
 
 Each row is one note matched to one tenure. `household_members` is that tenure's household as a
-flat JSON array, with role fields on the member:
+flat JSON array, with role fields on the member (matches MMH tenure's `householdMembers` field):
 
 ```json
 {
@@ -85,8 +86,8 @@ flat JSON array, with role fields on the member:
 }
 ```
 
-A note matched to two tenancies is two rows. The gateway drops rows where any of the four flags
-is true, then groups the rest by `note_id` into this pipeline record:
+A note matched to two tenancies is two rows. The gateway returns those rows after dropping any
+where a flag is true. `NotePreprocessor` then groups them by `note_id` into this pipeline record:
 
 ```json
 {

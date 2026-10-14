@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 from src.common.schemas import EnrichedNote, Relation, Span
-from src.pipelines.entity_linker import DeterministicEntityLinker
+from src.services.entity_linker import DeterministicEntityLinker
 
 
 # --- Helpers ----

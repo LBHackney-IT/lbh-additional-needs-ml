@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from src.common.schemas import Span
-from src.pipelines.relation_classifier_pipeline import RelationClassifierPipeline
+from src.services.relation_classifier_pipeline import RelationClassifierPipeline
 
 
 # --- Helpers ----
