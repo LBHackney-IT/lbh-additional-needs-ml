@@ -48,17 +48,30 @@ class Link(BaseModel):
     method: str
 
 
-class HouseholdMember(BaseModel):
-    """Maps to MMH's tenure householdMembers field."""
+class TenureMembership(BaseModel):
+    """A person's role in one tenancy.
 
-    # https://github.com/LBHackney-IT/tenure-shared/blob/main/Hackney.Shared.Tenure/Domain/HouseholdMembers.cs
+    Role fields belong to the tenancy membership, not the person.
+    """
 
-    id: str
-    householdMembersType: str | None = None
-    fullName: str | None = None
+    tenure_id: str
     personTenureType: str | None = None
     isResponsible: bool | None = None
+
+
+class HouseholdMember(BaseModel):
+    """A household person, with one membership per matched tenancy.
+
+    Person fields map to MMH's household member identity. Role fields live on
+    TenureMembership because they describe the person in a specific tenancy.
+    https://github.com/LBHackney-IT/tenure-shared/blob/main/Hackney.Shared.Tenure/Domain/HouseholdMembers.cs
+    """
+
+    id: str
+    type: str | None = None
+    fullName: str | None = None
     dateOfBirth: str | None = None
+    memberships: list[TenureMembership] = Field(default_factory=list)
 
 
 class EnrichedNote(BaseModel):

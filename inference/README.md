@@ -48,20 +48,65 @@ inference/
 
 ## Data Contracts
 
-### Input Schema (Athena: `housing-refined-zone.additional_needs_notes_reshaped`)
+### Input Schema (Athena)
 
-Production data is read through Athena. The canonical record passed to the pipelines is shaped like this:
+Production data is read through Athena. Any table can be selected at runtime, provided it has
+the following columns:
+
+- `note_id`
+- `note_content`
+- `note_date`
+- `tenure_id`
+- `household_members` (a JSON array)
+- `flag_no_matching_target`
+- `flag_note_date_parse_failed`
+- `flag_is_organisation`
+- `flag_inactive`
+
+Each row is one note matched to one tenure. `household_members` is that tenure's household as a
+flat JSON array, with role fields on the member:
+
+```json
+{
+  "note_id": "note-123",
+  "note_content": "Mrs Smith requires ground-floor accommodation.",
+  "note_date": "2026-10-01 09:30:00",
+  "tenure_id": "tenure-456",
+  "household_members": [
+    {
+      "id": "person-789",
+      "type": "person",
+      "fullName": "Mrs Smith",
+      "dateOfBirth": "1980-01-01",
+      "personTenureType": "Tenant",
+      "isResponsible": true
+    }
+  ]
+}
+```
+
+A note matched to two tenancies is two rows. The gateway drops rows where any of the four flags
+is true, then groups the rest by `note_id` into this pipeline record:
 
 ```json
 {
   "id": "note-123",
   "text": "Mrs Smith requires ground-floor accommodation.",
+  "date": "2026-10-01 09:30:00",
   "tenure_ids": ["tenure-456"],
   "household_members": [
     {
       "id": "person-789",
+      "type": "person",
       "fullName": "Mrs Smith",
-      "dateOfBirth": "1980-01-01"
+      "dateOfBirth": "1980-01-01",
+      "memberships": [
+        {
+          "tenure_id": "tenure-456",
+          "personTenureType": "Tenant",
+          "isResponsible": true
+        }
+      ]
     }
   ]
 }
@@ -118,9 +163,14 @@ The application writes partitioned JSON files to its SageMaker Processing output
       "id": "person-789",
       "type": "person",
       "fullName": "John Smith",
-      "isResponsible": true,
       "dateOfBirth": "1943-01-01 00:00:00",
-      "personTenureType": "Tenant"
+      "memberships": [
+        {
+          "tenure_id": "b6468897-074d-4689-84ac-66d8a5891411",
+          "personTenureType": "Tenant",
+          "isResponsible": true
+        }
+      ]
     }
   ],
   "pipeline_run_at": "2026-10-07T16:00:00Z"
@@ -141,13 +191,22 @@ pytest -q
 ruff check src tests
 
 # Run locally (requires staging AWS credentials)
-python src/run_inference.py \
+python -m src.run_inference \
   --athena-database housing-refined-zone \
-  --athena-table additional_needs_notes_reshaped \
+  --athena-table v_repairs_jds_reshaped \
   --athena-workgroup housing \
   --output-dir ./data/output
 
 # Docker Build & Run
 docker build -t housing-additional-needs-ml .
-docker run --rm -v $(pwd)/data:/app/data housing-additional-needs-ml
+docker run --rm \
+  -v $(pwd)/data:/app/data \
+  housing-additional-needs-ml \
+  --athena-table v_repairs_jds_reshaped \
+  --output-dir /app/data/output
+
+# The table can alternatively be supplied as an environment variable.
+docker run --rm \
+  -e ATHENA_TABLE=v_repairs_jds_reshaped \
+  housing-additional-needs-ml
 ```

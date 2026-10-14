@@ -73,6 +73,14 @@ class DeterministicEntityLinker:
     def _unresolved() -> ResolveResult:
         return ResolveResult(target_id=None, confidence=0.0, method=None)
 
+    @staticmethod
+    def _has_role(person: HouseholdMember, role: str) -> bool:
+        """Return true when any of the person's tenancy memberships has this role."""
+        return any(
+            str(membership.personTenureType or "").lower() == role
+            for membership in person.memberships
+        )
+
     # --- Helpers ---
     def _resolve_name(self, extracted: str, household: list[HouseholdMember]) -> ResolveResult:
         """Resolve a person-name span using the strongest fuzzy match."""
@@ -96,9 +104,7 @@ class DeterministicEntityLinker:
             if not self._is_role_mention(extracted, role):
                 continue
 
-            matches = [
-                person for person in household if str(person.personTenureType or "").lower() == role
-            ]
+            matches = [person for person in household if self._has_role(person, role)]
             if len(matches) == 1:
                 return ResolveResult(
                     target_id=matches[0].id,

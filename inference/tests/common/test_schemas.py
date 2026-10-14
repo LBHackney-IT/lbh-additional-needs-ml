@@ -12,6 +12,10 @@ def test_enriched_note_to_json(sample_note_payload):
     assert dumped["needs"][0]["label"] == "physical_health"
     assert dumped["relations"][0]["from"] == "need-1"
     assert dumped["tenure_ids"] == ["tenure-1"]
+    member = dumped["household_members"][0]
+    assert member["fullName"] == "Jane Doe"
+    assert "personTenureType" not in member
+    assert member["memberships"][0]["personTenureType"] == "tenant"
 
 
 def test_enriched_note_with_links_serializes_correctly():

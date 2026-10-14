@@ -13,14 +13,22 @@ def sample_household():
         {
             "id": "person-1",
             "fullName": "Jane Doe",
-            "personTenureType": "tenant",
             "dateOfBirth": "1985-03-15",
+            "memberships": [
+                {"tenure_id": "tenure-1", "personTenureType": "tenant", "isResponsible": True}
+            ],
         },
         {
             "id": "person-2",
             "fullName": "John Smith",
-            "personTenureType": "leaseholder",
             "dateOfBirth": "1990-07-01",
+            "memberships": [
+                {
+                    "tenure_id": "tenure-1",
+                    "personTenureType": "leaseholder",
+                    "isResponsible": False,
+                }
+            ],
         },
     ]
 

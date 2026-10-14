@@ -105,8 +105,8 @@ def test_fuzzy_name_links_to_person_highest_confidence(enriched_note):
         "Jane Doe",
         "person_name",
         [
-            {"id": "person-1", "fullName": "Miss Jane Doe", "personTenureType": "tenant"},
-            {"id": "person-2", "fullName": "Mr John Doe", "personTenureType": "tenant"},
+            {"id": "person-1", "fullName": "Miss Jane Doe"},
+            {"id": "person-2", "fullName": "Mr John Doe"},
         ],
     )
 
@@ -124,7 +124,34 @@ def test_single_tenant_links_by_role():
     note = make_note(
         "tenant",
         "person_role",
-        [{"id": "person-tenant", "fullName": "Jane", "personTenureType": "tenant"}],
+        [
+            {
+                "id": "person-tenant",
+                "fullName": "Jane",
+                "memberships": [{"tenure_id": "tenure-1", "personTenureType": "tenant"}],
+            }
+        ],
+    )
+
+    links = DeterministicEntityLinker().link(note)
+
+    assert links[0].target_id == "person-tenant"
+    assert links[0].method == "role_tenant"
+
+
+def test_tenant_role_survives_a_different_role_in_another_tenancy():
+    note = make_note(
+        "tenant",
+        "person_role",
+        [
+            {
+                "id": "person-tenant",
+                "memberships": [
+                    {"tenure_id": "tenure-2", "personTenureType": "householdMember"},
+                    {"tenure_id": "tenure-1", "personTenureType": "tenant"},
+                ],
+            }
+        ],
     )
 
     links = DeterministicEntityLinker().link(note)
@@ -137,7 +164,12 @@ def test_single_leaseholder_matches_by_role():
     note = make_note(
         "leaseholder",
         "person_role",
-        [{"id": "person-leaseholder", "personTenureType": "leaseholder"}],
+        [
+            {
+                "id": "person-leaseholder",
+                "memberships": [{"tenure_id": "tenure-1", "personTenureType": "leaseholder"}],
+            }
+        ],
     )
 
     links = DeterministicEntityLinker().link(note)
@@ -151,8 +183,14 @@ def test_multiple_tenants_fallback_to_tenure():
         "tenant",
         "person_role",
         [
-            {"id": "tenant-1", "personTenureType": "tenant"},
-            {"id": "tenant-2", "personTenureType": "tenant"},
+            {
+                "id": "tenant-1",
+                "memberships": [{"tenure_id": "tenure-1", "personTenureType": "tenant"}],
+            },
+            {
+                "id": "tenant-2",
+                "memberships": [{"tenure_id": "tenure-2", "personTenureType": "tenant"}],
+            },
         ],
     )
 
@@ -167,8 +205,13 @@ def test_ambiguous_person_ref_falls_back_to_tenure():
         "tenant's mother",
         "person_role",
         [
-            {"id": "person-tenant", "personTenureType": "tenant"},
-            {"id": "person-tenant", "personTenureType": "householdMember"},
+            {
+                "id": "person-tenant",
+                "memberships": [
+                    {"tenure_id": "tenure-1", "personTenureType": "tenant"},
+                    {"tenure_id": "tenure-2", "personTenureType": "householdMember"},
+                ],
+            },
         ],
     )
 
