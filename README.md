@@ -17,6 +17,8 @@ The most important distinction is this:
 
 > `dev/` is where models and approaches are explored. `inference/` is the production runtime that must remain stable when a model is deployed.
 
+Install and run each package from **inside that directory**. The root directory is primarily for orientation; it is not a single installable Python package.
+
 ## What the System Does
 
 The production pipeline processes a case note in three stages:
@@ -33,44 +35,16 @@ The detailed input/output contract, examples, thresholds, fallback rules, and pr
 
 ---
 
-## Repository Structure
-
-This is a **monorepo**. Each directory owns its own dependencies and has its own README.
-
-| Folder | Purpose | Main Tech | README Link |
-| :--- | :--- | :--- | :--- |
-| **`inference/`** | Production batch inference, model loading, validation, entity linking, and container configuration. | PyTorch, Docker, pytest | [inference/README.md](./inference/README.md) |
-| **`dev/`** | Research code for preprocessing, training, evaluation, and experiments. | PyTorch, Hugging Face, SageMaker | [dev/README.md](./dev/README.md) |
-| **`visualizer/`** | Local UI for inspecting predictions, annotations, relations, and attributions. | React, Vite, Node | [visualizer/README.md](./visualizer/README.md) |
-| **`data/`** | Input data, processed datasets, model artefacts, logs, and experiment results. | CSV, JSON, spaCy, model files | — |
-
-Install and run each package from **inside that directory**. The root directory is primarily for orientation; it is not a single installable Python package.
-
-When a model or rule changes in `dev/`, production does not update automatically. A production update requires checking the packaged model, label list, thresholds, tokenizer, and production output schema in `inference/`.
----
-
-## Environment and Quick Start
+## Baseline requirements
 
 * **Python Version:** 3.12
 * **Node Version:** v24+ (Visualizer only)
 * **AWS credentials:** Training and some batch scripts require access to the `data-platform-development` account using profile `data-platform-admin-dev`.
 
-To get started with a specific component, navigate into its folder and follow the readme:
-
-```bash
-# For production inference
-cd inference/
-
-# For model training & experiments
-cd dev/
-
-# For running the visualizer
-cd visualizer/
-```
 
 ## Pre-commit Hooks
 
-This repository uses [`pre-commit`](https://pre-commit.com/) to automatically strip output from Jupyter Notebooks before committing.
+This repository uses [`pre-commit`](https://pre-commit.com/) to lint and automatically strip output from Jupyter Notebooks before committing.
 
 ### Setup
 
@@ -87,10 +61,10 @@ This repository uses [`pre-commit`](https://pre-commit.com/) to automatically st
 
 ### Verification & Manual Run
 
-To verify that the hook is installed correctly or to run `nbstripout` manually against all notebooks in the repository:
+To verify that the hook is installed correctly or to run linting manually:
 
 ```bash
 pre-commit run --all-files
 ```
 
-If successful, you will see `nbstripout` pass (or modify staged notebooks to clear outputs) prior to committing.
+If successful, you will see it pass (or modify staged notebooks to clear outputs) prior to committing.

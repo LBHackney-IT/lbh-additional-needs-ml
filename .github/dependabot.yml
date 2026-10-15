@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /inference
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /inference
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
