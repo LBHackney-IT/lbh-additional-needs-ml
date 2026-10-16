@@ -27,10 +27,18 @@ ATHENA_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # --- Helpers ---
 def _parse_household_members(value: Any) -> list[dict[str, Any]]:
-    """Convert Athena's JSON/string household members value into member dictionaries."""
+    """Convert Athena's JSON/string household members value into member dictionaries.
+
+    Unreadable JSON is treated as an empty household so one bad cell does not
+    discard the rest of the note.
+    """
     if value is None or value == "":
         return []
-    members = json.loads(value) if isinstance(value, str) else value
+    try:
+        members = json.loads(value) if isinstance(value, str) else value
+    except json.JSONDecodeError:
+        logging.getLogger(__name__).warning("Skipping unreadable household_members value")
+        return []
     if not isinstance(members, list):
         raise ValueError("household_members must be a JSON array")
     return [member for member in members if isinstance(member, dict)]

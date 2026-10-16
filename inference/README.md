@@ -223,42 +223,73 @@ ruff check src tests
 
 ```
 
-### 2. Local CLI Execution (Requires AWS Credentials)
+### 2. Model Weights Setup
+
+Place weights under `./data/models` using the structure below (default thresholds fall back to 0.5 if `optimized_thresholds.json` is absent):
+
+```text
+data/models/
+├── span/
+│   ├── config.json
+│   └── final_model/
+│       ├── model.safetensors
+│       ├── label_list.json
+│       ├── optimized_thresholds.json
+│       └── tokenizer/
+└── relation/
+    ├── config.json
+    └── final_model/
+        ├── model.safetensors
+        └── tokenizer/
+
+```
+
+### 3. Local CLI Execution
+**Note: Requires AWS Credentials with access to Housing Athena Workgroup**
 
 ```bash
-# Standard run against MMH dataset
+# Smoke test a single note ID
 python -m src.run_inference \
+  --model-root ./data/models \
   --athena-database housing-refined-zone \
   --athena-table additional_needs_notes_reshaped \
   --athena-workgroup housing \
   --source mmh \
-  --output-dir ./data/output
+  --output-dir ./data/output \
+  --where "note_id = '<note-id>'"
 
 # Run with custom date window filter
 python -m src.run_inference \
+  --model-root ./data/models \
   --where '"flag_inactive" = FALSE AND note_date >= DATE '\''2024-01-01'\'' AND note_date < DATE '\''2025-01-01'\'''
 
-# Run over all rows without default flag filtering
-python -m src.run_inference --where ""
+# Run over all rows without default flag filtering (not recommended for local)
+python -m src.run_inference --model-root ./data/models --where ""
 
 ```
 
-### 3. Docker Container Operations
+### 4. Docker Container Operations
 
 ```bash
-# Build production container image
+# Build container image
 docker build -t housing-additional-needs-ml .
 
-# Run container targeting a custom dataset/view (e.g., Repairs)
+# Local container smoke test
 docker run --rm \
-  -v $(pwd)/data:/app/data \
+  -v "$(pwd)/data/models:/opt/ml/processing/model:ro" \
+  -v "$(pwd)/data/output:/opt/ml/processing/output" \
+  -v "$HOME/.aws:/root/.aws:ro" \
+  -e AWS_PROFILE=data-platform-admin-dev \
   housing-additional-needs-ml \
-  --athena-table v_repairs_jds_reshaped \
-  --output-dir /app/data/output
+  --where "note_id = '<note-id>'"
 
-# Alternative: Pass target table via environment variable
+# Target custom table via CLI commands
 docker run --rm \
-  -e ATHENA_TABLE=v_repairs_jds_reshaped \
-  housing-additional-needs-ml
+  -v "$(pwd)/data/models:/opt/ml/processing/model:ro" \
+  -v "$(pwd)/data/output:/opt/ml/processing/output" \
+  -v "$HOME/.aws:/root/.aws:ro" \
+  -e AWS_PROFILE=data-platform-admin-dev \
+  housing-additional-needs-ml \
+  --athena-table v_repairs_jds_reshaped
 
 ```
