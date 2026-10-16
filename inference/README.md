@@ -1,25 +1,26 @@
-# Production Inference
+# Production Batch Inference Engine
 
-This folder contains the production batch application that extracts Additional Needs from housing case notes.
+This folder contains the production batch pipeline that extracts resident Additional Needs from unstructured text records (e.g., housing case notes, repairs descriptions) and maps predictions to database entity IDs.
 
-The application runs four stages:
+## Pipeline Flow
 
 ```text
-Athena rows -> note preprocessing -> span extraction -> relation extraction -> entity linking -> partitioned output
+Athena (SQL) ──> Preprocessing ──> NER (Spans) ──> RE (Relations) ──> Entity Linking ──> Postprocessing ──> Partitioned JSON
+
 ```
 
-- **Preprocessing (`src/services/note_preprocessor.py`):** Groups note-tenure rows into one record per note. Acronym expansion will run here too; the models were trained on expanded text.
-- **NER (`src/services/span_classifier_pipeline.py`):** Identifies text mentions (person_name, person_role, need_category)
-- **RE (`src/services/relation_classifier_pipeline.py`):** Pairs candidate need and person mentions within the same note.
-- **EL (`src/services/entity_linker.py`):** Deterministic business logic mapping person mentions to household member IDs (excludes minors <18; falls back to tenure-level links).   
+1. **Preprocessing (`src/services/note_preprocessor.py`):** Groups note-tenure rows into a single record per note, applies category prefixes (`[Category: <category>]`), expands acronyms, and tags the `--source` identifier.
+2. **NER / Span Extraction (`src/services/span_classifier_pipeline.py`):** Identifies text spans for needs (`need_category`) and people (`person_name`, `person_role`).
+3. **RE / Relation Extraction (`src/services/relation_classifier_pipeline.py`):** Evaluates candidate (person, need) pairs within the note text to determine if they are related.
+4. **EL / Entity Linking (`src/services/entity_linker.py`):** Applies deterministic rules to map predicted person mentions to household member IDs. Excludes minors (<18 years old) and defaults unresolved needs to tenure-level links.
+
+---
 
 ## Folder Structure
 
-
-
 | Functionality | Dir/File | Responsibility |
 | --- | --- | --- |
-| Composition root (`Program.cs` in a .NET project) | `src/run_inference.py` | Builds dependencies, configures the job, and runs batches |
+| Composition root  | `src/run_inference.py` | Builds dependencies, configures the job, and runs batches |
 | Infrastructure gateway | `src/gateway/` | Reads production records through Athena |
 | Domain definitions / DTOs | `src/common/schemas.py` | Defines types for spans, relations, links, household members, and notes |
 | Application services | `src/services/` | Coordinates span extraction, relation extraction, and linking |
@@ -49,28 +50,44 @@ inference/
 
 ## Data Contracts
 
-### Input Schema (Athena)
+### 1. Input Schema (Athena Query)
 
-Production data is read through Athena. Any table can be selected at runtime, provided it has
-the following columns:
+The input query expects an Athena table or view containing the following columns:
 
-- `note_id`
-- `note_content`
-- `note_date`
-- `tenure_id`
-- `household_members` (a JSON array)
-- `flag_no_matching_target`
-- `flag_note_date_parse_failed`
-- `flag_is_organisation`
-- `flag_inactive`
+| Column | Type | Description |
+| --- | --- | --- |
+| `note_id` | `VARCHAR` | Unique identifier for the note |
+| `note_category` | `VARCHAR` | Category string (prefixed to text during preprocessing) |
+| `note_content` | `VARCHAR` | Raw unstructured text content |
+| `note_date` | `TIMESTAMP` | Timestamp of note creation |
+| `tenure_id` | `VARCHAR` | Linked tenancy identifier |
+| `household_members` | `JSON Array` | Array of household member objects linked to the tenancy |
 
-Each row is one note matched to one tenure. `household_members` is that tenure's household as a
-flat JSON array, with role fields on the member (matches MMH tenure's `householdMembers` field):
+#### Default Filter (`--where`)
+
+By default, queries apply MMH quality flags:
+
+```sql
+"flag_no_matching_target" = FALSE
+AND "flag_note_date_parse_failed" = FALSE
+AND "flag_is_organisation" = FALSE
+AND "flag_inactive" = FALSE
+
+```
+
+To override this default (e.g., for date filtering or non-MMH datasets like Repairs), pass `--where` via CLI or `--where ""` to fetch all rows without filtering.
+
+#### Preprocessor Schema Transformation
+
+Upstream SQL returns one row per note-tenure match (possibly duplicated). `NotePreprocessor` groups these rows by `note_id`, consolidating multiple tenancies into a single pipeline object, expands acronyms (`LH` -> `Leaseholder`), and prefixes the category:
+
+**Raw Athena Row:**
 
 ```json
 {
   "note_id": "note-123",
-  "note_content": "Mrs Smith requires ground-floor accommodation.",
+  "note_category": "General",
+  "note_content": "LH requires ground-floor accommodation.",
   "note_date": "2026-10-01 09:30:00",
   "tenure_id": "tenure-456",
   "household_members": [
@@ -84,15 +101,16 @@ flat JSON array, with role fields on the member (matches MMH tenure's `household
     }
   ]
 }
+
 ```
 
-A note matched to two tenancies is two rows. The gateway returns those rows after dropping any
-where a flag is true. `NotePreprocessor` then groups them by `note_id` into this pipeline record:
+**Consolidated Preprocessed Record:**
 
 ```json
 {
   "id": "note-123",
-  "text": "Mrs Smith requires ground-floor accommodation.",
+  "source": "mmh",
+  "text": "[Category: General] Leaseholder requires ground-floor accommodation.",
   "date": "2026-10-01 09:30:00",
   "tenure_ids": ["tenure-456"],
   "household_members": [
@@ -111,35 +129,38 @@ where a flag is true. `NotePreprocessor` then groups them by `note_id` into this
     }
   ]
 }
+
 ```
 
-See the [Data Platform repo](https://github.com/LBHackney-IT/Data-Platform/blob/main/terraform/core/71-housing-additional-needs-ml.tf) for the infrastructure and the [airflow repo](https://github.com/LBHackney-IT/dap-airflow/blob/main/etl_scripts/housing/additional_needs/additional_needs_notes_reshape.py) for the upstream ETL.
+*Ref: [Infrastructure Terraform](https://github.com/LBHackney-IT/Data-Platform/blob/main/terraform/core/71-housing-additional-needs-ml.tf) | [Upstram Airflow Reshape ETL*](https://github.com/LBHackney-IT/dap-airflow/blob/main/etl_scripts/housing/additional_needs/additional_needs_notes_reshape.py)
 
-## Output Schema (`/opt/ml/processing/output/part_*.json`)
+---
 
-The application writes partitioned JSON files to its SageMaker Processing output directory.
+### 2. Output Schema (`/opt/ml/processing/output/part_*.json`)
+
+Batch outputs are flushed periodically as partitioned JSON files containing enriched notes:
 
 ```json
 {
-{
   "id": "note-123",
+  "source": "mmh",
   "needs": [
-     {
-        "id": "need-1",
-        "text": "hoarding issue",
-        "start": 187,
-        "end": 285,
-        "label": "housing_conditions_hoarding"
-    },
+    {
+      "id": "need-1",
+      "text": "hoarding issue",
+      "start": 187,
+      "end": 285,
+      "label": "housing_conditions_hoarding"
+    }
   ],
   "persons": [
     {
-        "id": "person-1",
-        "text": "john smith",
-        "start": 139,
-        "end": 145,
-        "label": "person_name"
-    },
+      "id": "person-1",
+      "text": "john smith",
+      "start": 139,
+      "end": 145,
+      "label": "person_name"
+    }
   ],
   "relations": [
     {
@@ -156,10 +177,10 @@ The application writes partitioned JSON files to its SageMaker Processing output
       "method": "fuzzy_name"
     }
   ],
-  "tenure_ids":[
+  "tenure_ids": [
     "b6468897-074d-4689-84ac-66d8a5891411"
   ],
-  "household_members":[
+  "household_members": [
     {
       "id": "person-789",
       "type": "person",
@@ -174,40 +195,70 @@ The application writes partitioned JSON files to its SageMaker Processing output
       ]
     }
   ],
+  "model": "span-classifier-123-relation-extractor-2"
   "pipeline_run_at": "2026-10-07T16:00:00Z"
 }
-}
+
 ```
 
-## Local Setup and Tests
+---
 
-Run commands from this `/inference`, not from the repository root:
+## Local Setup & Commands
+
+All commands must be executed from the `/inference` subdirectory.
+
+### 1. Environment Setup & Tests
 
 ```bash
-# Environment setup & tests
+# Create and activate virtual environment
 python -m venv .venv
 source .venv/bin/activate
+
+# Install editable package with dev dependencies
 pip install -e ".[dev]"
+
+# Run unit tests and linter
 pytest -q
 ruff check src tests
 
-# Run locally (requires staging AWS credentials)
+```
+
+### 2. Local CLI Execution (Requires AWS Credentials)
+
+```bash
+# Standard run against MMH dataset
 python -m src.run_inference \
   --athena-database housing-refined-zone \
-  --athena-table v_repairs_jds_reshaped \
+  --athena-table additional_needs_notes_reshaped \
   --athena-workgroup housing \
+  --source mmh \
   --output-dir ./data/output
 
-# Docker Build & Run
+# Run with custom date window filter
+python -m src.run_inference \
+  --where '"flag_inactive" = FALSE AND note_date >= DATE '\''2024-01-01'\'' AND note_date < DATE '\''2025-01-01'\'''
+
+# Run over all rows without default flag filtering
+python -m src.run_inference --where ""
+
+```
+
+### 3. Docker Container Operations
+
+```bash
+# Build production container image
 docker build -t housing-additional-needs-ml .
+
+# Run container targeting a custom dataset/view (e.g., Repairs)
 docker run --rm \
   -v $(pwd)/data:/app/data \
   housing-additional-needs-ml \
   --athena-table v_repairs_jds_reshaped \
   --output-dir /app/data/output
 
-# The table can alternatively be supplied as an environment variable.
+# Alternative: Pass target table via environment variable
 docker run --rm \
   -e ATHENA_TABLE=v_repairs_jds_reshaped \
   housing-additional-needs-ml
+
 ```
