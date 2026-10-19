@@ -30,10 +30,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@v1.4.2
+        uses: LBHackney-IT/aws-oidc-auth@v1.2.0
         with:
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
           apiUrl: https://ci-auth.hackney.gov.uk
+          roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
 
       - name: Log in to ECR
         id: ecr
