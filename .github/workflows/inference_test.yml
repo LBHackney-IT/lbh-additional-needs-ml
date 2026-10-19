@@ -1,4 +1,4 @@
-name: Inference Pipeline CI
+name: Inference Lint and Test
 
 on:
   workflow_call:
@@ -10,11 +10,11 @@ on:
       - main
     paths:
       - "inference/**"
-      - ".github/workflows/inference_ci.yml"
+      - ".github/workflows/inference_test.yml"
   pull_request:
     paths:
       - "inference/**"
-      - ".github/workflows/inference_ci.yml"
+      - ".github/workflows/inference_test.yml"
 
 jobs:
   test:

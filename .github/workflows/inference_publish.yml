@@ -7,12 +7,12 @@ on:
       - HT-972-create-additional-needs-batch-inference-container
     paths:
       - "inference/**"
-      - ".github/workflows/inference_ci.yml"
+      - ".github/workflows/inference_test.yml"
       - ".github/workflows/inference_publish.yml"
 
 jobs:
   test:
-    uses: ./.github/workflows/inference_ci.yml
+    uses: ./.github/workflows/inference_test.yml
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
