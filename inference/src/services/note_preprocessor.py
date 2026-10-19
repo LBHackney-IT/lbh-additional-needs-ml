@@ -32,44 +32,66 @@ class NotePreprocessor:
         return self.expand_acronyms(content)
 
     @staticmethod
+    def _new_person(member: dict[str, Any]) -> dict[str, Any]:
+        """Seed a person record from the first household row we see for them."""
+        return {
+            "id": member.get("id"),
+            "type": member.get("type"),
+            "fullName": member.get("fullName"),
+            "dateOfBirth": member.get("dateOfBirth"),
+            "memberships": [],
+        }
+
+    @staticmethod
+    def _fill_missing_fields(person: dict[str, Any], member: dict[str, Any]) -> None:
+        """Backfill any person fields that were blank on an earlier row."""
+        for field in ("type", "fullName", "dateOfBirth"):
+            if not person.get(field) and member.get(field):
+                person[field] = member[field]
+
+    @staticmethod
+    def _add_membership(
+        person: dict[str, Any],
+        tenure_id: str | None,
+        member: dict[str, Any],
+        seen_tenures: set[str],
+    ) -> None:
+        """Record a tenancy membership once per (person, tenure) pair."""
+        if not tenure_id or tenure_id in seen_tenures:
+            return
+        seen_tenures.add(tenure_id)
+        person["memberships"].append(
+            {
+                "tenure_id": tenure_id,
+                "personTenureType": member.get("personTenureType"),
+                "isResponsible": member.get("isResponsible"),
+            }
+        )
+
+    @classmethod
     def _merge_household_members(
+        cls,
         rows: list[tuple[str | None, list[dict[str, Any]]]],
     ) -> list[dict[str, Any]]:
         """Collapse a note's tenures (grouped) into list of persons with a list of memberships."""
         people: dict[str, dict[str, Any]] = {}
         seen_tenures: dict[str, set[str]] = {}
 
+        # Get tenure x person/householdmember combos and consolidate into hms[]: person: tenures[].
         for tenure_id, members in rows:
             for member in members:
                 person_id = member.get("id")
                 if not person_id:
                     continue
 
-                person = people.get(person_id)
-                if person is None:
-                    person = {
-                        "id": person_id,
-                        "type": member.get("type"),
-                        "fullName": member.get("fullName"),
-                        "dateOfBirth": member.get("dateOfBirth"),
-                        "memberships": [],
-                    }
-                    people[person_id] = person
+                if person_id not in people:
+                    people[person_id] = cls._new_person(member)
                     seen_tenures[person_id] = set()
                 else:
-                    for field in ("type", "fullName", "dateOfBirth"):
-                        if not person.get(field) and member.get(field):
-                            person[field] = member[field]
+                    cls._fill_missing_fields(people[person_id], member)
 
-                if tenure_id and tenure_id not in seen_tenures[person_id]:
-                    seen_tenures[person_id].add(tenure_id)
-                    person["memberships"].append(
-                        {
-                            "tenure_id": tenure_id,
-                            "personTenureType": member.get("personTenureType"),
-                            "isResponsible": member.get("isResponsible"),
-                        }
-                    )
+                cls._add_membership(people[person_id], tenure_id, member, seen_tenures[person_id])
+
         return list(people.values())
 
     def preprocess_notes(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

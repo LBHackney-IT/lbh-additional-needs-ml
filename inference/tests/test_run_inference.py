@@ -217,7 +217,7 @@ def test_run_inference_flushes_each_batch(monkeypatch, tmp_path):
 
     import src.run_inference as run_module
 
-    FakeAthenaSource.instances = []
+    monkeypatch.setattr(FakeAthenaSource, "instances", [])
     monkeypatch.setattr(run_module, "AthenaRecordSource", FakeAthenaSource)
     monkeypatch.setattr(run_module, "SpanClassifierPipeline", FakeSpanPipeline)
     monkeypatch.setattr(run_module, "RelationClassifierPipeline", FakeRelationPipeline)
