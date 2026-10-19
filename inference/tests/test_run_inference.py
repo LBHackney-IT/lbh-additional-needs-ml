@@ -161,6 +161,31 @@ def test_parse_args_rejects_an_unsafe_source():
         parse_args(["--source", "repairs hub"])
 
 
+def test_parse_args_defaults_model_directories(monkeypatch):
+    monkeypatch.delenv("SPAN_MODEL_NAME", raising=False)
+    monkeypatch.delenv("RELATION_MODEL_NAME", raising=False)
+    config = parse_args([])
+
+    assert config.span_model_name == "span_v1"
+    assert config.relation_model_name == "relation_v1"
+
+
+def test_parse_args_uses_cli_model_directories(monkeypatch):
+    monkeypatch.setenv("SPAN_MODEL_NAME", "span_from_env")
+    monkeypatch.setenv("RELATION_MODEL_NAME", "relation_from_env")
+    config = parse_args(
+        ["--span-model-name", "span_2026_10_19", "--relation-model-name", "relation_2026_10_19"]
+    )
+
+    assert config.span_model_name == "span_2026_10_19"
+    assert config.relation_model_name == "relation_2026_10_19"
+
+
+def test_parse_args_rejects_a_model_directory_that_escapes_the_root():
+    with pytest.raises(ValueError, match="Invalid span model name"):
+        parse_args(["--span-model-name", "../other-model"])
+
+
 # --- Pipeline Unit Tests ----
 def test_process_batch_calls_each_stage():
     relation_pipeline = FakeRelationPipeline()

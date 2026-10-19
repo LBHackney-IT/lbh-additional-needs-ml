@@ -282,3 +282,26 @@ run-docker --athena-table v_repairs_jds_reshaped
 
 ```
 
+#### Option C: Remote/Local SageMaker Job
+
+Models are read from `s3://dataplatform-stg-housing-additional-needs-ml-storage/models/` and predictions are written under `predictions/` in the same bucket.
+
+```bash
+pip install -e ".[launch]"
+
+export SAGEMAKER_INFERENCE_IMAGE_URI="<account-id>.dkr.ecr.eu-west-2.amazonaws.com/housing-additional-needs-ml:<commit-sha>"
+
+# Cheap CPU smoke test
+python launch_sagemaker.py \
+  --instance-type ml.m5.large \
+  --where "note_id = '<note-id>'" \
+  --span-model-name span_v1 \
+  --relation-model-name relation_v1 \
+  --profile aws_profile
+
+# Full backlog production run
+python launch_sagemaker.py --no-wait --profile aws_profile
+
+```
+
+*Note: To run the container locally via the launcher script instead of AWS, set `IS_LOCAL=True` inside `launch_sagemaker.py`.*

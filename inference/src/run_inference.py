@@ -244,6 +244,13 @@ def _validate_source(source: str) -> str:
     return source
 
 
+def _validate_model_name(name: str, label: str) -> str:
+    """Return a model directory name that cannot escape the model root."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ValueError(f"Invalid {label}: {name!r}")
+    return name
+
+
 def parse_args(argv: list[str] | None = None) -> InferenceConfig:
     """Parse command line arguments and environment variables into InferenceConfig.
 
@@ -300,7 +307,19 @@ def parse_args(argv: list[str] | None = None) -> InferenceConfig:
         "--model-root",
         type=Path,
         default=Path(os.environ.get("MODEL_ROOT", DEFAULT_MODEL_ROOT)),
-        help="Root directory containing span/ and relation/ model artifacts",
+        help="Root directory containing one directory per model name",
+    )
+    parser.add_argument(
+        "--span-model-name",
+        default=os.environ.get("SPAN_MODEL_NAME", "span_v1"),
+        help="Directory under the model root containing the span model. Defaults to span_v1.",
+    )
+    parser.add_argument(
+        "--relation-model-name",
+        default=os.environ.get("RELATION_MODEL_NAME", "relation_v1"),
+        help=(
+            "Directory under the model root containing the relation model. Defaults to relation_v1."
+        ),
     )
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", "128")))
     parser.add_argument(
@@ -327,6 +346,8 @@ def parse_args(argv: list[str] | None = None) -> InferenceConfig:
         batch_size=args.batch_size,
         flush_every_n_batches=args.flush_every_n_batches,
         relation_threshold=args.relation_threshold,
+        span_model_name=_validate_model_name(args.span_model_name, "span model name"),
+        relation_model_name=_validate_model_name(args.relation_model_name, "relation model name"),
     )
 
 
