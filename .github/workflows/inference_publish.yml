@@ -33,7 +33,7 @@ jobs:
         uses: LBHackney-IT/aws-oidc-auth@v1.2.0
         with:
           apiUrl: https://ci-auth.hackney.gov.uk
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
+          roleArn: arn:aws:iam::${{ secrets.ACCOUNT_NAME }}:role/LBH_Automation_Deployment_Role
 
       - name: Log in to ECR
         id: ecr
