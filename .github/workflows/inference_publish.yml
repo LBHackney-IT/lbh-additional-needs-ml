@@ -27,7 +27,7 @@ jobs:
       AWS_REGION: eu-west-2
       ECR_REPOSITORY: housing-additional-needs-ml
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
 
       - name: Assume deployment role
         uses: LBHackney-IT/aws-oidc-auth@v1.2.0

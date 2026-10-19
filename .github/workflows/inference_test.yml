@@ -24,12 +24,6 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      
-      - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@v1.2.0
-        with:
-          apiUrl: https://ci-auth.hackney.gov.uk
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT_NAME }}:role/LBH_Automation_Deployment_Role
 
       - name: Set up Python
         uses: actions/setup-python@v5
