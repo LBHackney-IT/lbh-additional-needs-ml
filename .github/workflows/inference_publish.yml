@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - HT-972-create-additional-needs-batch-inference-container
     paths:
       - "inference/**"
       - ".github/workflows/inference_test.yml"
