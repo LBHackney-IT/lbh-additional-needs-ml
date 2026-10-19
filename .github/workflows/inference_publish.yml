@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - HT-972-create-additional-needs-batch-inference-container
     paths:
       - "inference/**"
       - ".github/workflows/inference_ci.yml"
@@ -29,11 +30,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+        uses: LBHackney-IT/aws-oidc-auth@v1.4.2
         with:
           roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
           apiUrl: https://ci-auth.hackney.gov.uk
-          region: ${{ env.AWS_REGION }}
 
       - name: Log in to ECR
         id: ecr
