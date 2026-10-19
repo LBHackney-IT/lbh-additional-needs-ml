@@ -1,0 +1,50 @@
+name: Publish inference image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "inference/**"
+      - ".github/workflows/inference_ci.yml"
+      - ".github/workflows/inference_publish.yml"
+
+jobs:
+  test:
+    uses: ./.github/workflows/inference_ci.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  publish:
+    name: Build & Publish Inference Image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: eu-west-2
+      ECR_REPOSITORY: housing-additional-needs-ml
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Assume deployment role
+        uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+        with:
+          roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
+          apiUrl: https://ci-auth.hackney.gov.uk
+          region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          test -n "$ECR_REPOSITORY"
+          IMAGE="$REGISTRY/$ECR_REPOSITORY"
+          docker build --tag "$IMAGE:$IMAGE_TAG" inference
+          docker push "$IMAGE:$IMAGE_TAG"

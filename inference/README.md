@@ -205,16 +205,14 @@ Batch outputs are flushed periodically as partitioned JSON files containing enri
 
 ## Local Setup & Commands
 
-All commands must be executed from the `/inference` subdirectory.
+All commands are run from the `/inference` directory.
 
 ### 1. Environment Setup & Tests
 
 ```bash
 # Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install editable package with dev dependencies
+python -m venv .venv && source .venv/bin/activate
+# Install dev dependencies
 pip install -e ".[dev]"
 
 # Run unit tests and linter
@@ -223,73 +221,64 @@ ruff check src tests
 
 ```
 
-### 2. Model Weights Setup
+### 2. Set Up Model Weights
 
-Place weights under `./data/models` using the structure below (default thresholds fall back to 0.5 if `optimized_thresholds.json` is absent):
+Place weights in `./data/models/` (falls back to `0.5` threshold if `optimized_thresholds.json` is missing):
 
 ```text
 data/models/
-├── span/
+├── span_v1/
 │   ├── config.json
-│   └── final_model/
-│       ├── model.safetensors
-│       ├── label_list.json
-│       ├── optimized_thresholds.json
-│       └── tokenizer/
-└── relation/
+│   └── final_model/ (model.safetensors, label_list.json, optimized_thresholds.json, tokenizer/)
+└── relation_v1/
     ├── config.json
-    └── final_model/
-        ├── model.safetensors
-        └── tokenizer/
+    └── final_model/ (model.safetensors, tokenizer/)
 
 ```
 
-### 3. Local CLI Execution
-**Note: Requires AWS Credentials with access to Housing Athena Workgroup**
+---
+
+### 3. Execution Options
+
+*Prerequisite:* AWS credentials with access to Housing Athena Workgroup.
+
+#### Option A: Direct Python Run
 
 ```bash
-# Smoke test a single note ID
-python -m src.run_inference \
-  --model-root ./data/models \
-  --athena-database housing-refined-zone \
-  --athena-table additional_needs_notes_reshaped \
-  --athena-workgroup housing \
-  --source mmh \
-  --output-dir ./data/output \
-  --where "note_id = '<note-id>'"
+# Set common defaults once
+export MODEL_ROOT="./data/models"
+export OUTPUT_DIR="./data/output"
 
-# Run with custom date window filter
-python -m src.run_inference \
-  --model-root ./data/models \
-  --where '"flag_inactive" = FALSE AND note_date >= DATE '\''2024-01-01'\'' AND note_date < DATE '\''2025-01-01'\'''
+# Smoke test a single note
+python -m src.run_inference --where "note_id = '<note-id>'"
 
-# Run over all rows without default flag filtering (not recommended for local)
-python -m src.run_inference --model-root ./data/models --where ""
+# Target a custom dataset/table (e.g., Repairs)
+python -m src.run_inference --athena-table v_repairs_jds_reshaped
+
+# Custom date window filter
+python -m src.run_inference --where '"flag_inactive" = FALSE AND note_date >= DATE '\''2024-01-01'\'''
 
 ```
 
-### 4. Docker Container Operations
+#### Option B: Local Docker Container
 
 ```bash
-# Build container image
+# Build image
 docker build -t housing-additional-needs-ml .
 
-# Local container smoke test
-docker run --rm \
-  -v "$(pwd)/data/models:/opt/ml/processing/model:ro" \
-  -v "$(pwd)/data/output:/opt/ml/processing/output" \
-  -v "$HOME/.aws:/root/.aws:ro" \
+# Shared run command (mounts AWS creds, models, output directory)
+alias run-docker="docker run --rm \
+  -v \"\$(pwd)/data/models:/opt/ml/processing/model:ro\" \
+  -v \"\$(pwd)/data/output:/opt/ml/processing/output\" \
+  -v \"\$HOME/.aws:/root/.aws:ro\" \
   -e AWS_PROFILE=data-platform-admin-dev \
-  housing-additional-needs-ml \
-  --where "note_id = '<note-id>'"
+  housing-additional-needs-ml"
 
-# Target custom table via CLI commands
-docker run --rm \
-  -v "$(pwd)/data/models:/opt/ml/processing/model:ro" \
-  -v "$(pwd)/data/output:/opt/ml/processing/output" \
-  -v "$HOME/.aws:/root/.aws:ro" \
-  -e AWS_PROFILE=data-platform-admin-dev \
-  housing-additional-needs-ml \
-  --athena-table v_repairs_jds_reshaped
+# Single note smoke test
+run-docker --where "note_id = '<note-id>'"
+
+# Custom table
+run-docker --athena-table v_repairs_jds_reshaped
 
 ```
+

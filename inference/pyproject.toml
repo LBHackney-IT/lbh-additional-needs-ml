@@ -26,6 +26,9 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.8",
 ]
+launch = [
+    "sagemaker>=2.250,<3",
+]
 
 [project.scripts]
 run-inference = "src.run_inference:main"
