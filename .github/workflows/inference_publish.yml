@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - fix/publish-assume-role
     paths:
       - "inference/**"
       - ".github/workflows/inference_test.yml"
@@ -29,11 +30,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+        uses: aws-actions/configure-aws-credentials@93823cfbdc340541ab49e4596d1da6f0536e05d0 # v6.1.3
         with:
-          apiUrl: https://ci-auth.hackney.gov.uk
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT_NAME }}:role/LBH_Automation_Deployment_Role
-          region: eu-west-2
+          role-to-assume: arn:aws:iam::${{secrets.ACCOUNT_NAME}}:role/LBH_Automation_Deployment_Role_OIDC
+          role-session-name: aws-oidc-session
+          aws-region: eu-west-2
 
       - name: Log in to ECR
         id: ecr
