@@ -327,3 +327,31 @@ def test_creates_one_link_per_relation_or_unrelated_need():
     links = DeterministicEntityLinker(fuzzy_similarity=0.95).link(note)
 
     assert len(links) == 3
+
+
+def test_property_level_need_stays_at_tenure_despite_person_relation():
+    note = EnrichedNote(
+        id="note-property",
+        text="Jane reported damp and mould.",
+        model="test",
+        needs=[
+            Span(
+                id="need-1",
+                text="damp and mould",
+                start=14,
+                end=28,
+                label="property_level_disrepair_damp_mould",
+                confidence=0.97,
+            )
+        ],
+        persons=[Span(id="p1", text="Jane", start=0, end=4, label="person_name", confidence=0.9)],
+        relations=[Relation.model_validate({"from": "need-1", "to": "p1", "confidence": 0.8})],
+        tenure_ids=["tenure-1"],
+        household_members=[{"id": "person-jane", "fullName": "Jane"}],
+    )
+
+    links = DeterministicEntityLinker().link(note)
+
+    assert [(link.target_id, link.target_type, link.method) for link in links] == [
+        ("tenure-1", "tenure", "tenure_fallback")
+    ]

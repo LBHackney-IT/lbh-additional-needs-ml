@@ -1,0 +1,15 @@
+../dev/
+dev/
+.git/
+*.ipynb
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+tests/
+requirements-dev.txt

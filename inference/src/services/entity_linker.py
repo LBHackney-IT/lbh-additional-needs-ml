@@ -155,14 +155,20 @@ class DeterministicEntityLinker:
         res = self._resolve_span(p_pred.text, p_pred.label.lower(), household)
         target_id = res["target_id"]
 
-        # Skip links with property-level needs, minors, or if no link found
-        if not target_id:
+        # Property-level needs belong to the tenancy, even when the relation
+        # model associates them with a person mention.
+        if n_label.startswith("property_level"):
+            if self.logger:
+                self.logger.info(
+                    "Keeping property-level need %s at tenure level in note %s",
+                    need_id,
+                    record_id,
+                )
             return None
 
-        if n_label.startswith("property_level") and self.logger:
-            self.logger.warning(
-                "%s label linked to %s in note ID %s", n_label, p_pred.label.lower(), record_id
-            )
+        # Skip person links for minors or when no household member was resolved.
+        if not target_id:
+            return None
 
         if self._is_minor(household_lookup.get(target_id)):
             if self.logger:

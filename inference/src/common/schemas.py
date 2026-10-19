@@ -80,6 +80,7 @@ class EnrichedNote(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    source: str = "mmh"
     text: str
     date: str | None = None
     model: str

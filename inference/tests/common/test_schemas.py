@@ -8,6 +8,7 @@ def test_enriched_note_to_json(sample_note_payload):
     dumped = note.model_dump_for_json()
 
     assert dumped["id"] == "note-1"
+    assert dumped["source"] == "mmh"
     assert len(dumped["needs"]) == 1
     assert dumped["needs"][0]["label"] == "physical_health"
     assert dumped["relations"][0]["from"] == "need-1"
