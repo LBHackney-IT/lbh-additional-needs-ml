@@ -66,7 +66,7 @@ class Config:
     tags: list[dict] = field(
         default_factory=lambda: [
             {"Key": "Application", "Value": "housing-additional-needs"},
-            {"Key": "TeamEmail", "Value": "shared.services@hackney.gov.uk"},
+            {"Key": "TeamEmail", "Value": "mmh-project-team@hackney.gov.uk"},
             {"Key": "Environment", "Value": "stg"},
             {"Key": "Confidentiality", "Value": "Internal"},
         ]
