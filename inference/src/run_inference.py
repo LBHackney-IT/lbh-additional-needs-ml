@@ -351,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         Exit code (0 for success).
     """
     config = parse_args(argv)
-    logger = setup_logger("inference.pipeline", "pipeline.log")
+    logger = setup_logger("inference.pipeline", "pipeline.log", config.output_dir / "logs")
     logger.info(
         "Starting inference: source=%s athena=%s.%s output=%s model_root=%s",
         config.source,
