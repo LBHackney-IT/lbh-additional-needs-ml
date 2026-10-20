@@ -271,7 +271,7 @@ alias run-docker="docker run --rm \
   -v \"\$(pwd)/data/models:/opt/ml/processing/model:ro\" \
   -v \"\$(pwd)/data/output:/opt/ml/processing/output\" \
   -v \"\$HOME/.aws:/root/.aws:ro\" \
-  -e AWS_PROFILE=data-platform-admin-dev \
+  -e AWS_PROFILE=data-platform-housing-staging \
   housing-additional-needs-ml"
 
 # Single note smoke test

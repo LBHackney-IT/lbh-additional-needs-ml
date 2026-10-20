@@ -47,7 +47,7 @@ class Config:
 
     # Pipeline config (forwarded to run_inference)
     source: str = "mmh"
-    athena_database: str = "housing-refined-zone"
+    athena_database: str = "prod__housing-refined-zone"
     athena_table: str = "additional_needs_notes_reshaped"
     athena_workgroup: str = "housing"
     where: str = DEFAULT_WHERE
