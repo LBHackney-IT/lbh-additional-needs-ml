@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/publish-assume-role
     paths:
       - "inference/**"
       - ".github/workflows/inference_test.yml"
