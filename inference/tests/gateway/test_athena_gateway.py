@@ -46,7 +46,7 @@ def query_page(rows):
                 "ColumnInfo": [
                     {"Name": "note_id"},
                     {"Name": "tenure_id"},
-                    {"Name": "original_text"},
+                    {"Name": "note_content"},
                     {"Name": "note_category"},
                     {"Name": "note_date"},
                     {"Name": "household_members"},
@@ -69,7 +69,7 @@ def test_fetch_records_returns_data_in_expected_format():
                 cell_row(
                     "note_id",
                     "tenure_id",
-                    "original_text",
+                    "note_content",
                     "note_category",
                     "note_date",
                     "household_members",
@@ -137,11 +137,11 @@ def test_fetch_records_returns_data_in_expected_format():
     assert client.started["WorkGroup"] == "housing"
     assert client.started["QueryExecutionContext"] == {"Database": "prod__housing-refined-zone"}
 
-    assert [record["note_id"] for record in records] == ["note-1", "note-1", "note-2"]
-    assert records[0]["note_content"] == "Note text"
-    assert records[0]["note_date"] == "2026-10-01 09:30:00"
-    assert [record["tenure_id"] for record in records] == ["tenure-1", "tenure-2", "tenure-3"]
-    assert records[0]["household_members"] == [
+    assert [record.note_id for record in records] == ["note-1", "note-1", "note-2"]
+    assert records[0].text == "Note text"
+    assert records[0].note_date == "2026-10-01 09:30:00"
+    assert [record.tenure_id for record in records] == ["tenure-1", "tenure-2", "tenure-3"]
+    assert records[0].household_members == [
         {
             "id": "person-1",
             "type": "person",
@@ -151,8 +151,8 @@ def test_fetch_records_returns_data_in_expected_format():
             "isResponsible": True,
         }
     ]
-    assert records[1]["household_members"][1]["fullName"] == "Bea"
-    assert records[2]["household_members"] == []
+    assert records[1].household_members[1]["fullName"] == "Bea"
+    assert records[2].household_members == []
 
 
 def test_fetch_records_raises_for_failed_query():

@@ -38,7 +38,7 @@ def sample_note_payload(sample_household):
     return {
         "id": "note-1",
         "source": "mmh",
-        "text": "Jane Doe has mobility needs.",
+        "text": "[Category: Repairs] Jane Doe at the HSC has mobility needs.",
         "date": "2024-01-01",
         "model": "test_span_test_relation",
         "needs": [

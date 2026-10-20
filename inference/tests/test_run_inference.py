@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.common.schemas import Link, Relation, Span, SpanPredictions
+from src.common.schemas import DomainNote, Link, Relation, Span, SpanPredictions
 from src.gateway.athena_gateway import DEFAULT_WHERE
 from src.run_inference import (
     InferenceConfig,
@@ -17,9 +17,10 @@ from src.run_inference import (
 # --- Fixtures ---
 class FakeSpanPipeline:
     def __init__(self, **_kwargs):
-        pass
+        self.calls = []
 
     def predict_batch(self, texts):
+        self.calls.append(texts)
         return [
             SpanPredictions(
                 needs=[
@@ -64,9 +65,10 @@ class FakeRelationPipeline:
 
 class FakeLinker:
     def __init__(self, **_kwargs):
-        pass
+        self.calls = []
 
     def link(self, note):
+        self.calls.append(note)
         return [
             Link(
                 need_id=note.needs[0].id,
@@ -82,14 +84,14 @@ class FakeAthenaSource:
     records = [
         {
             "note_id": "note-1",
-            "note_content": "first",
+            "text": "first",
             "note_date": None,
             "tenure_id": None,
             "household_members": [],
         },
         {
             "note_id": "note-2",
-            "note_content": "second",
+            "text": "second",
             "note_date": None,
             "tenure_id": None,
             "household_members": [],
@@ -188,26 +190,41 @@ def test_parse_args_rejects_a_model_directory_that_escapes_the_root():
 
 # --- Pipeline Unit Tests ----
 def test_process_batch_calls_each_stage():
+    span_pipeline = FakeSpanPipeline()
     relation_pipeline = FakeRelationPipeline()
-    record = {
-        "id": "note-1",
-        "text": "Jane Doe mobility needs",
-        "date": "2026-01-01",
-        "tenure_ids": ["tenure-1"],
-        "household_members": [],
-    }
+    entity_linker = FakeLinker()
+    record = DomainNote(
+        id="note-1",
+        prefixed_text="[Category: Repairs] Jane Doe mobility needs ASB",
+        expanded_text="[Category: Repairs] Jane Doe mobility needs Anti-Social Behaviour",
+        date="2026-01-01",
+        tenure_ids=["tenure-1"],
+    )
 
     payloads = _process_batch(
         [record],
-        FakeSpanPipeline(),
+        span_pipeline,
         relation_pipeline,
-        FakeLinker(),
+        entity_linker,
         "span_relation",
         datetime(2026, 1, 1, tzinfo=UTC),
     )
 
+    # Assert each stage was called
+    assert len(span_pipeline.calls) == 1
+    assert span_pipeline.calls[0] == [record.expanded_text]
+
+    assert len(relation_pipeline.calls) == 1
+    assert relation_pipeline.calls[0][0] == record.expanded_text
     assert relation_pipeline.calls[0][1][0].label == "physical_health"
     assert relation_pipeline.calls[0][2][0].label == "person_name"
+
+    assert len(entity_linker.calls) == 1
+    assert entity_linker.calls[0].expanded_text == record.expanded_text
+
+    # Assert the final output reverted to the PREFIXED text
+    assert payloads[0]["text"] == record.prefixed_text
+    assert payloads[0]["needs"][0]["text"] == "mobility needs"
     assert payloads[0]["relations"][0]["from"] == "need-0"
     assert payloads[0]["links"][0]["target_id"] == "person-1"
 
@@ -241,3 +258,5 @@ def test_run_inference_flushes_each_batch(monkeypatch, tmp_path):
     second_part = json.loads((output_dir / "part_0002.json").read_text(encoding="utf-8"))
     assert FakeAthenaSource.instances[0].config["table"] == "v_repairs_jds_reshaped"
     assert [first_part[0]["id"], second_part[0]["id"]] == ["note-1", "note-2"]
+    assert first_part[0]["text"] == "first"
+    assert "raw_text" not in first_part[0]

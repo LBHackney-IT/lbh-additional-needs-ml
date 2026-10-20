@@ -1,12 +1,18 @@
 """Preprocesses notes.
 
 - Flattening: Turns Athena note x tenure rows into one record per note. (Flattens upstream ETL fan-out)
-- Acronym expansion (Not implemented yet): Models were trained on acronym expanded notes so we need to replace acronyms accordingly.
+- Abbreviation expansion: ``expanded_text`` is for the classifiers. ``prefixed_text`` keeps the category prefix and the officer's abbreviations.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from src.common.schemas import (
+    DomainNote,
+    GatewayHouseholdMember,
+    GatewayNote,
+    HouseholdMember,
+    TenureMembership,
+)
 
 
 class NotePreprocessor:
@@ -23,79 +29,84 @@ class NotePreprocessor:
         """
         return text
 
-    def _compose_text(self, row: dict[str, Any]) -> str:
-        """Build the model text, prefixing the category the officer chose."""
-        content = row.get("note_content") or ""
-        category = str(row.get("note_category") or "").strip()
+    def _prefix_category(self, note: GatewayNote) -> str:
+        """Build the note text, prefixing the category the officer chose."""
+        content = note.text or ""
+        category = str(note.note_category or "").strip()
         if category and not content.startswith("[Category:"):
             content = f"[Category: {category}] {content}"
-        return self.expand_acronyms(content)
+        return content
 
     @staticmethod
-    def _new_person(member: dict[str, Any]) -> dict[str, Any]:
-        """Seed a person record from the first household row we see for them."""
-        return {
-            "id": member.get("id"),
-            "type": member.get("type"),
-            "fullName": member.get("fullName"),
-            "dateOfBirth": member.get("dateOfBirth"),
-            "memberships": [],
-        }
+    def _upsert_person(
+        people: dict[str, HouseholdMember], member: GatewayHouseholdMember
+    ) -> HouseholdMember:
+        """Create a new person or backfill missing fields on an existing one."""
+        if member.id not in people:
+            people[member.id] = HouseholdMember(
+                id=member.id,
+                type=member.type,
+                fullName=member.fullName,
+                dateOfBirth=member.dateOfBirth,
+                memberships=[],
+            )
+        else:
+            existing = people[member.id]
+            existing.type = existing.type or member.type
+            existing.fullName = existing.fullName or member.fullName
+            existing.dateOfBirth = existing.dateOfBirth or member.dateOfBirth
 
-    @staticmethod
-    def _fill_missing_fields(person: dict[str, Any], member: dict[str, Any]) -> None:
-        """Backfill any person fields that were blank on an earlier row."""
-        for field in ("type", "fullName", "dateOfBirth"):
-            if not person.get(field) and member.get(field):
-                person[field] = member[field]
+        return people[member.id]
 
     @staticmethod
     def _add_membership(
-        person: dict[str, Any],
+        person: HouseholdMember,
         tenure_id: str | None,
-        member: dict[str, Any],
+        member: GatewayHouseholdMember,
         seen_tenures: set[str],
     ) -> None:
-        """Record a tenancy membership once per (person, tenure) pair."""
+        """Add a tenancy membership if it hasn't been added yet."""
         if not tenure_id or tenure_id in seen_tenures:
             return
+
         seen_tenures.add(tenure_id)
-        person["memberships"].append(
-            {
-                "tenure_id": tenure_id,
-                "personTenureType": member.get("personTenureType"),
-                "isResponsible": member.get("isResponsible"),
-            }
+        person.memberships.append(
+            TenureMembership(
+                tenure_id=tenure_id,
+                personTenureType=member.personTenureType,
+                isResponsible=member.isResponsible,
+            )
         )
 
     @classmethod
     def _merge_household_members(
         cls,
-        rows: list[tuple[str | None, list[dict[str, Any]]]],
-    ) -> list[dict[str, Any]]:
-        """Collapse a note's tenures (grouped) into list of persons with a list of memberships."""
-        people: dict[str, dict[str, Any]] = {}
+        rows: list[tuple[str | None, list[GatewayHouseholdMember]]],
+    ) -> list[HouseholdMember]:
+        """Collapse a note's tenures (grouped) into a list of strongly-typed HouseholdMembers."""
+        people: dict[str, HouseholdMember] = {}
         seen_tenures: dict[str, set[str]] = {}
 
-        # Get tenure x person/householdmember combos and consolidate into hms[]: person: tenures[].
+        # Get tenure x person combos and consolidate into person: tenures[].
         for tenure_id, members in rows:
             for member in members:
-                person_id = member.get("id")
-                if not person_id:
+                if not member.id:
                     continue
 
-                if person_id not in people:
-                    people[person_id] = cls._new_person(member)
-                    seen_tenures[person_id] = set()
-                else:
-                    cls._fill_missing_fields(people[person_id], member)
+                # 1. Get or update the person
+                person = cls._upsert_person(people, member)
 
-                cls._add_membership(people[person_id], tenure_id, member, seen_tenures[person_id])
+                # 2. Add the membership record
+                seen_tenures.setdefault(member.id, set())
+                cls._add_membership(person, tenure_id, member, seen_tenures[member.id])
 
         return list(people.values())
 
-    def preprocess_notes(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Return one pipeline record per note with household members formatted and acronyms replaced.
+    def preprocess_notes(self, rows: list[GatewayNote]) -> list[DomainNote]:
+        """Return one domain note per note id, with household members formatted.
+
+        ``prefixed_text`` is the note after the category prefix and before abbreviation expansion.
+        ``expanded_text`` is that string with abbreviations expanded, which is what the classifiers read.
         Input (Rows):
         [
           {"note_id": "n1", "tenure_id": "t1", "household_members": [alice]},
@@ -120,37 +131,41 @@ class NotePreprocessor:
         }
         """
 
-        note_records: dict[str, dict[str, Any]] = {}
-        household_rows: dict[str, list[tuple[str | None, list[dict[str, Any]]]]] = {}
-
+        # 1. Group all GatewayNote rows by note_id
+        grouped_rows: dict[str, list[GatewayNote]] = {}
         for row in rows:
-            note_id = row.get("note_id")
-            if not note_id:
-                continue
+            if row.note_id:
+                grouped_rows.setdefault(row.note_id, []).append(row)
 
-            # Initialize dict for note ID
-            note_records.setdefault(
-                note_id,
-                {
-                    "id": note_id,
-                    "source": self.source,
-                    "text": self._compose_text(row),
-                    "date": row.get("note_date"),
-                    "tenure_ids": [],
-                    "household_members": [],
-                },
+        domain_notes: list[DomainNote] = []
+
+        # 2. Reduce grouped rows into DomainNotes
+        for note_id, note_group in grouped_rows.items():
+            base_note = note_group[0]
+            # Acroynm expansion
+            prefixed_text = self._prefix_category(base_note)
+            expanded_text, replacements = self.expand_acronyms(prefixed_text)
+
+            # Grouping tenures and household members per note
+            tenure_ids: list[str] = []
+            household_data: list[tuple[str | None, list[GatewayHouseholdMember]]] = []
+            for row in note_group:
+                if row.tenure_id and row.tenure_id not in tenure_ids:
+                    tenure_ids.append(row.tenure_id)
+                household_data.append((row.tenure_id, row.household_members))
+
+            # Convert + reshape & combine household members
+            domain_notes.append(
+                DomainNote(
+                    id=note_id,
+                    source=self.source,
+                    prefixed_text=prefixed_text,
+                    expanded_text=expanded_text,
+                    replacements=replacements,
+                    date=base_note.note_date,
+                    tenure_ids=tenure_ids,
+                    household_members=self._merge_household_members(household_data),
+                )
             )
 
-            # Collect unique tenure IDs and householdmember dicts per note and append to relevant groups
-            tenure_id = row.get("tenure_id")
-            if tenure_id and tenure_id not in note_records[note_id]["tenure_ids"]:
-                note_records[note_id]["tenure_ids"].append(tenure_id)
-            household_rows.setdefault(note_id, []).append(
-                (tenure_id, row.get("household_members") or [])
-            )
-
-        # Merge/transform household memberships across tenures
-        for note_id, record in note_records.items():
-            record["household_members"] = self._merge_household_members(household_rows[note_id])
-
-        return list(note_records.values())
+        return domain_notes
