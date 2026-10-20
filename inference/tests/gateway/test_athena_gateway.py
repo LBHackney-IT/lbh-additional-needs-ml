@@ -135,7 +135,7 @@ def test_fetch_records_returns_data_in_expected_format():
     records = class_under_test.fetch_records()
 
     assert client.started["WorkGroup"] == "housing"
-    assert client.started["QueryExecutionContext"] == {"Database": "housing-refined-zone"}
+    assert client.started["QueryExecutionContext"] == {"Database": "prod__housing-refined-zone"}
 
     assert [record["note_id"] for record in records] == ["note-1", "note-1", "note-2"]
     assert records[0]["note_content"] == "Note text"

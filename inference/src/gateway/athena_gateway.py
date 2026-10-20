@@ -12,7 +12,7 @@ from typing import Any
 import boto3
 
 # --- Constants ---
-DEFAULT_DATABASE = "housing-refined-zone"
+DEFAULT_DATABASE = "prod__housing-refined-zone"
 DEFAULT_TABLE = "additional_needs_notes_reshaped"
 DEFAULT_WORKGROUP = "housing"
 DEFAULT_REGION = "eu-west-2"

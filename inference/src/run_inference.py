@@ -264,7 +264,7 @@ def parse_args(argv: list[str] | None = None) -> InferenceConfig:
     parser = argparse.ArgumentParser(description="Additional Needs batch inference pipeline")
     parser.add_argument(
         "--athena-database",
-        default=os.environ.get("ATHENA_DATABASE", "housing-refined-zone"),
+        default=os.environ.get("ATHENA_DATABASE", "prod__housing-refined-zone"),
         help="Athena database containing the production note table",
     )
     parser.add_argument(

@@ -86,6 +86,9 @@ class SpanClassifierPipeline:
             )
             state_dict = load_file(self.model_dir / "model.safetensors", device=str(self.device))
             self.model.load_state_dict(state_dict)
+            # Handle float16s safely (only affects CPU/MPS runs)
+            if self.device.type != "cuda":
+                self.model.float()
             self.model.eval()  # Disable training behaviour
 
     # --- Helpers ---
