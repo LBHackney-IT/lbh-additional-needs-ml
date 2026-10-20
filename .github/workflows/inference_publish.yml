@@ -20,7 +20,7 @@ jobs:
     name: Build & Publish Inference Image
     # needs: test
     runs-on: ubuntu-latest
-    environment: development
+    environment: production
     permissions:
       id-token: write
       contents: read
