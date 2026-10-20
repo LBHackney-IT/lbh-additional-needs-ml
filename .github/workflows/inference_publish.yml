@@ -27,8 +27,9 @@ jobs:
       AWS_REGION: eu-west-2
       ECR_REPOSITORY: housing-additional-needs-ml
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-  
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Assume deployment role
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -37,9 +38,14 @@ jobs:
           aws-region: eu-west-2
           retry-max-attempts: "3"
 
-      - name: Log in to ECR
+      - name: Log in to Amazon ECR (Private for pushing final image)
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Log in to Amazon ECR Public (For pulling PyTorch base image)
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
 
       - name: Build and push image
         env:
