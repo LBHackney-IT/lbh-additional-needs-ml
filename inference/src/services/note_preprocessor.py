@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from src.common.schemas import (
     AcronymReplacement,
@@ -202,7 +203,7 @@ class NotePreprocessor:
 
         return list(people.values())
 
-    def preprocess_notes(self, rows: list[GatewayNote]) -> list[DomainNote]:
+    def preprocess_notes(self, rows: list[GatewayNote | dict[str, Any]]) -> list[DomainNote]:
         """Return one domain note per note id, with household members formatted.
 
         ``prefixed_text`` is the note after the category prefix and before abbreviation expansion.
@@ -233,7 +234,10 @@ class NotePreprocessor:
 
         # 1. Group all GatewayNote rows by note_id
         grouped_rows: dict[str, list[GatewayNote]] = {}
-        for row in rows:
+        for raw_row in rows:
+            row = (
+                raw_row if isinstance(raw_row, GatewayNote) else GatewayNote.model_validate(raw_row)
+            )
             if row.note_id:
                 grouped_rows.setdefault(row.note_id, []).append(row)
 

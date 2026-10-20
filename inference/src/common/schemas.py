@@ -87,6 +87,17 @@ class AcronymReplacement(BaseModel):
     expanded_end: int
 
 
+class GatewayHouseholdMember(BaseModel):
+    """Household-member shape as received in a gateway note row."""
+
+    id: str | None = None
+    type: str | None = None
+    fullName: str | None = None
+    dateOfBirth: str | None = None
+    personTenureType: str | None = None
+    isResponsible: bool | None = None
+
+
 # ==========================================
 # LAYER 1: DATA ACCESS (GATEWAY)
 # ==========================================
@@ -100,7 +111,7 @@ class GatewayNote(BaseModel):
     note_category: str | None = None
     note_date: str | None = None
     tenure_id: str | None = None
-    household_members: list[dict[str, Any]] = Field(default_factory=list)
+    household_members: list[GatewayHouseholdMember] = Field(default_factory=list)
 
     @field_validator("text", mode="before")
     @classmethod
@@ -109,7 +120,7 @@ class GatewayNote(BaseModel):
 
     @field_validator("household_members", mode="before")
     @classmethod
-    def _blank_members(cls, value: Any) -> list[dict[str, Any]]:
+    def _blank_members(cls, value: Any) -> list[GatewayHouseholdMember]:
         return value or []
 
 
