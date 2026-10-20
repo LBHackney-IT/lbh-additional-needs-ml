@@ -1,0 +1,405 @@
+Ground truth (test set):
+    {
+        "id": "7eaf28fc-96b8-47db-8ef9-f5a7cfad4f92",
+        "label_studio_id": 28111,
+        "annotation_date": "2026-06-09 23:02:52.304170",
+        "text": "[Category: tenureManagement] called tenant after email from Ethan Adams below Tenant coming in to Hackney Service Centre with worker from hospital <DATE_TIME> for her keys worker from hospital will have ID, asked them to write her signed note if not being acommpanied, no TA on file so cant check signiture, tenant going back to hospital but will get <DATE_TIME> leave sometimes\n\nHi Robert,\n\nThe tenant called to ask if you have her keys to her due to a lock change?\n\nShe has been in hospital and will be released on <DATE_TIME>. She would appreciate a call back about this and she has no identification because it's all in her property.\n\nThanks",
+        "needs": [
+            {
+                "id": "0c56b85b",
+                "text": "going back to hospital",
+                "start": 315,
+                "end": 337,
+                "label": "health_care_setting"
+            },
+            {
+                "id": "aae003a1",
+                "text": "has been in hospital and will be released on <DATE_TIME>",
+                "start": 472,
+                "end": 528,
+                "label": "health_care_setting"
+            }
+        ],
+        "persons": [
+            {
+                "id": "333465a3",
+                "text": "tenant",
+                "start": 36,
+                "end": 42,
+                "label": "person_role"
+            },
+            {
+                "id": "affbfd3f",
+                "text": "Tenant",
+                "start": 78,
+                "end": 84,
+                "label": "person_role"
+            },
+            {
+                "id": "2e347abf",
+                "text": "tenant",
+                "start": 308,
+                "end": 314,
+                "label": "person_role"
+            },
+            {
+                "id": "064e6870",
+                "text": "tenant",
+                "start": 396,
+                "end": 402,
+                "label": "person_role"
+            },
+            {
+                "id": "4b9606d2",
+                "text": "Ethan Adams",
+                "start": 60,
+                "end": 71,
+                "label": "person_name"
+            },
+            {
+                "id": "3bdb1f67",
+                "text": "worker from hospital",
+                "start": 126,
+                "end": 146,
+                "label": "person_role"
+            },
+            {
+                "id": "64498022",
+                "text": "worker from hospital",
+                "start": 172,
+                "end": 192,
+                "label": "person_role"
+            },
+            {
+                "id": "cee5204a",
+                "text": "Robert",
+                "start": 383,
+                "end": 389,
+                "label": "person_name"
+            }
+        ],
+        "relations": [
+            {
+                "from": "0c56b85b",
+                "to": "2e347abf"
+            },
+            {
+                "from": "aae003a1",
+                "to": "064e6870"
+            }
+        ],
+        "note_date": "2025-04-02 12:36:46.375000",
+        "tenure_ids": [
+            "10b432be-1f20-ed71-7087-a7b13042b558"
+        ],
+        "household_members": [
+            {
+                "fullName": "Miss Nailiah Pilgrim",
+                "isResponsible": true,
+                "dateOfBirth": "1983-01-01 00:00:00",
+                "personTenureType": "Tenant",
+                "id": "bd6d0049-a7e3-3554-cb00-f98782f6e6f9",
+                "type": "Person"
+            }
+        ]
+    },
+
+predicted (test set - PII stripped)
+    {
+        "id": "7eaf28fc-96b8-47db-8ef9-f5a7cfad4f92",
+        "text": "[Category: tenureManagement] called tenant after email from Ethan Adams below Tenant coming in to Hackney Service Centre with worker from hospital <DATE_TIME> for her keys worker from hospital will have ID, asked them to write her signed note if not being acommpanied, no TA on file so cant check signiture, tenant going back to hospital but will get <DATE_TIME> leave sometimes\n\nHi Robert,\n\nThe tenant called to ask if you have her keys to her due to a lock change?\n\nShe has been in hospital and will be released on <DATE_TIME>. She would appreciate a call back about this and she has no identification because it's all in her property.\n\nThanks",
+        "date": "2025-04-02 12:36:46.375000",
+        "model": "span-classifier-4_relation-classifier-2",
+        "needs": [
+            {
+                "id": "a78e7211",
+                "text": "going back to hospital",
+                "start": 315,
+                "end": 337,
+                "label": "health_care_setting",
+                "confidence": 0.9942589998245239
+            },
+            {
+                "id": "afb8a7a0",
+                "text": "has been in hospital",
+                "start": 472,
+                "end": 492,
+                "label": "health_care_setting",
+                "confidence": 0.9936985969543457
+            },
+            {
+                "id": "4aea6bf0",
+                "text": "lock change",
+                "start": 454,
+                "end": 465,
+                "label": "property_level_disrepair_damp_mould",
+                "confidence": 0.9043535590171814
+            }
+        ],
+        "persons": [
+            {
+                "id": "3b15ccf0",
+                "text": "tenant",
+                "start": 396,
+                "end": 402,
+                "label": "person_role",
+                "confidence": 0.9991263747215271
+            },
+            {
+                "id": "acea7c47",
+                "text": "Tenant",
+                "start": 78,
+                "end": 84,
+                "label": "person_role",
+                "confidence": 0.9989901185035706
+            },
+            {
+                "id": "9490bb30",
+                "text": "tenant",
+                "start": 308,
+                "end": 314,
+                "label": "person_role",
+                "confidence": 0.9987640380859375
+            },
+            {
+                "id": "c3b4ecb1",
+                "text": "tenant",
+                "start": 36,
+                "end": 42,
+                "label": "person_role",
+                "confidence": 0.9987362027168274
+            },
+            {
+                "id": "6faedcf9",
+                "text": "Ethan Adams",
+                "start": 60,
+                "end": 71,
+                "label": "person_name",
+                "confidence": 0.9987093210220337
+            },
+            {
+                "id": "41c7e8fa",
+                "text": "worker",
+                "start": 126,
+                "end": 132,
+                "label": "person_role",
+                "confidence": 0.9906027317047119
+            },
+            {
+                "id": "09e9d1a6",
+                "text": "Robert",
+                "start": 383,
+                "end": 389,
+                "label": "person_name",
+                "confidence": 0.9894545078277588
+            },
+            {
+                "id": "ed100f07",
+                "text": "worker",
+                "start": 172,
+                "end": 178,
+                "label": "person_role",
+                "confidence": 0.9733302593231201
+            }
+        ],
+        "relations": [
+            {
+                "from": "a78e7211",
+                "to": "9490bb30",
+                "confidence": 0.9990610480308533
+            },
+            {
+                "from": "afb8a7a0",
+                "to": "3b15ccf0",
+                "confidence": 0.9987550973892212
+            }
+        ],
+        "tenure_ids": [
+            "10b432be-1f20-ed71-7087-a7b13042b558"
+        ],
+        "household_members": [
+            {
+                "fullName": "Miss Nailiah Pilgrim",
+                "isResponsible": true,
+                "dateOfBirth": "1983-01-01 00:00:00",
+                "personTenureType": "Tenant",
+                "id": "bd6d0049-a7e3-3554-cb00-f98782f6e6f9",
+                "type": "Person"
+            }
+        ]
+    },
+    {
+        "id": "d9a7245e-54c1-2f9e-ea66-ea2e11970eb8",
+        "text": "[Category: Tenancy Management] Call Summary; Caller: Anthony Rodriguez; Logged by: Zachary Hicks; Estate Management: Other (TENANCY QUERY); ADDING POUSE TO TENANCY",
+        "date": "2019-04-24 12:21:16.610000",
+        "model": "span-classifier-4_relation-classifier-2",
+        "needs": [],
+        "persons": [
+            {
+                "id": "ab4c39f1",
+                "text": "Anthony Rodriguez",
+                "start": 53,
+                "end": 70,
+                "label": "person_name",
+                "confidence": 0.9925103187561035
+            },
+            {
+                "id": "3f40a643",
+                "text": "Caller",
+                "start": 45,
+                "end": 51,
+                "label": "person_role",
+                "confidence": 0.9655921459197998
+            },
+            {
+                "id": "006975a6",
+                "text": "Zachary Hicks",
+                "start": 83,
+                "end": 96,
+                "label": "person_role",
+                "confidence": 0.6497911810874939
+            }
+        ],
+        "relations": [],
+        "tenure_ids": [
+            "42f94516-d047-c77a-0245-efafcd851348"
+        ],
+        "household_members": [
+            {
+                "fullName": "Anthony Rodriguez",
+                "isResponsible": true,
+                "dateOfBirth": "1986-01-01 00:00:00",
+                "personTenureType": "Tenant",
+                "id": "e20d8dd8-a23c-2d02-94b6-9d02264925c9",
+                "type": "Person"
+            }
+        ]
+    },
+
+predicted (same id but not PII stripped):
+{
+    "id": "7eaf28fc-96b8-47db-8ef9-f5a7cfad4f92",
+    "source": "mmh",
+    "text": "[Category: tenureManagement] called tnt after email from Lucille below Tenant coming in to HSc with worker from hospital Friday for her keys worker from hospital will have ID, asked them to write her signed note if not being acommpanied, no TA on file so cant check signiture, tnt going back to hospital but will get overnight leave sometimes\n\nHi Robert,\n\nThe tenant called to ask if you have her keys to her due to a lock change?\n\nShe has been in hospital and will be released on Friday 4th April. She would appreciate a call back about this and she has no identification because it's all in her property.\n\nThanks",
+    "date": "2025-04-02 12:36:46.375",
+    "model": "span-classifier-v1_relation-classifier-v1",
+    "needs": [
+      {
+        "id": "fb6466a3",
+        "text": "has been in hospital",
+        "start": 436,
+        "end": 456,
+        "label": "health_care_setting",
+        "confidence": 0.9943841695785522
+      },
+      {
+        "id": "6130dc14",
+        "text": "going back to hospital",
+        "start": 281,
+        "end": 303,
+        "label": "health_care_setting",
+        "confidence": 0.9705414175987244
+      },
+      {
+        "id": "89d1c015",
+        "text": "lock change",
+        "start": 418,
+        "end": 429,
+        "label": "property_level_disrepair_damp_mould",
+        "confidence": 0.8644158840179443
+      }
+    ],
+    "persons": [
+      {
+        "id": "e88d0b56",
+        "text": "Tenant",
+        "start": 71,
+        "end": 77,
+        "label": "person_role",
+        "confidence": 0.9993119239807129
+      },
+      {
+        "id": "36e33db2",
+        "text": "tenant",
+        "start": 360,
+        "end": 366,
+        "label": "person_role",
+        "confidence": 0.9988963603973389
+      },
+      {
+        "id": "ed958969",
+        "text": "Lucille",
+        "start": 57,
+        "end": 64,
+        "label": "person_name",
+        "confidence": 0.9970898628234863
+      },
+      {
+        "id": "37b6bd72",
+        "text": "Robert",
+        "start": 347,
+        "end": 353,
+        "label": "person_name",
+        "confidence": 0.9955403208732605
+      },
+      {
+        "id": "348e0743",
+        "text": "worker",
+        "start": 100,
+        "end": 106,
+        "label": "person_role",
+        "confidence": 0.987798273563385
+      },
+      {
+        "id": "b6ece3d9",
+        "text": "worker",
+        "start": 141,
+        "end": 147,
+        "label": "person_role",
+        "confidence": 0.9680581092834473
+      }
+    ],
+    "relations": [],
+    "links": [
+      {
+        "need_id": "fb6466a3",
+        "target_id": "10b432be-1f20-ed71-7087-a7b13042b558",
+        "target_type": "tenure",
+        "confidence": 0.0,
+        "method": "tenure_fallback"
+      },
+      {
+        "need_id": "6130dc14",
+        "target_id": "10b432be-1f20-ed71-7087-a7b13042b558",
+        "target_type": "tenure",
+        "confidence": 0.0,
+        "method": "tenure_fallback"
+      },
+      {
+        "need_id": "89d1c015",
+        "target_id": "10b432be-1f20-ed71-7087-a7b13042b558",
+        "target_type": "tenure",
+        "confidence": 0.0,
+        "method": "tenure_fallback"
+      }
+    ],
+    "tenure_ids": [
+      "10b432be-1f20-ed71-7087-a7b13042b558"
+    ],
+    "household_members": [
+      {
+        "id": "bd6d0049-a7e3-3554-cb00-f98782f6e6f9",
+        "type": "Person",
+        "fullName": "Miss Nailiah Pilgrim",
+        "dateOfBirth": "1983-06-13T00:00:00",
+        "memberships": [
+          {
+            "tenure_id": "10b432be-1f20-ed71-7087-a7b13042b558",
+            "personTenureType": "Tenant",
+            "isResponsible": true
+          }
+        ]
+      }
+    ],
+    "pipeline_run_at": "2026-10-20T11:10:01.857617+00:00"
+  }

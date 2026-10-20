@@ -275,33 +275,32 @@ alias run-docker="docker run --rm \
   housing-additional-needs-ml"
 
 # Single note smoke test
-run-docker --where "note_id = '<note-id>'"
+run-docker --where "note_id = '<note_id>'"
 
 # Custom table
 run-docker --athena-table v_repairs_jds_reshaped
 
 ```
 
-#### Option C: Remote/Local SageMaker Job
+#### Option C: Local SageMaker Job
 
-Models are read from `s3://dataplatform-stg-housing-additional-needs-ml-storage/models/` and predictions are written under `predictions/` in the same bucket.
+`launch_sagemaker.py` is a local dev helper. It runs the published container through SageMaker Local Mode, reads models from
+`s3://dataplatform-stg-housing-additional-needs-ml-storage/models/`, and writes predictions to `data/output/`. 
+
+Your AWS profile needs access to the S3 bucket, Athena workgroup, and the ECR image.
 
 ```bash
 pip install -e ".[launch]"
 
 export SAGEMAKER_INFERENCE_IMAGE_URI="<account-id>.dkr.ecr.eu-west-2.amazonaws.com/housing-additional-needs-ml:<commit-sha>"
 
-# Cheap CPU smoke test
+# Local smoke test
 python launch_sagemaker.py \
-  --instance-type ml.m5.large \
-  --where "note_id = '<note-id>'" \
-  --span-model-name span_v1 \
-  --relation-model-name relation_v1 \
-  --profile aws_profile
-
-# Full backlog production run
-python launch_sagemaker.py --no-wait --profile aws_profile
+  --where "note_id = '<note_id>'" \
+  --span-model-name 'span-classifier-v1' \
+  --relation-model-name 'relation-classifier-v1' \
+  --profile 'data-platform-housing-staging' \
+  --image-uri '<account-id>.dkr.ecr.eu-west-2.amazonaws.com/housing-additional-needs-ml:<commit-sha>'
 
 ```
-
-*Note: To run the container locally via the launcher script instead of AWS, set `IS_LOCAL=True` inside `launch_sagemaker.py`.*
+This doesn't create a processing job in AWS but it's as close to production as you can get.
