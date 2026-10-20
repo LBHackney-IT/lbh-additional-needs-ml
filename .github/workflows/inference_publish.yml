@@ -28,30 +28,17 @@ jobs:
       ECR_REPOSITORY: housing-additional-needs-ml
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - name: Inspect Raw OIDC Token Claims
-        run: |
-          # 1. Fetch the raw JWT token from GitHub's internal runner endpoint
-          RAW_JWT=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=LBHackney-IT" | jq -r '.value')
-
-          # 2. Extract and base64-decode the payload (the middle section of the JWT)
-          PAYLOAD=$(echo "$RAW_JWT" | cut -d'.' -f2)
-          
-          # Fix base64 padding if required
-          PADDED_PAYLOAD=$(printf '%s' "$PAYLOAD" | awk '{
-            pad = 4 - (length % 4);
-            if (pad < 4) printf "%s", substr("====", 1, pad);
-            print "";
-          }')
-
-          echo "=== ACTUAL GITHUB OIDC CLAIMS BEING SENT ==="
-          echo "$PAYLOAD" | base64 -d 2>/dev/null | jq . || echo "$PAYLOAD" | base64 -d 2>/dev/null
-      - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          apiUrl: https://ci-auth.hackney.gov.uk
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
-          region: eu-west-2
+          role-to-assume: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
+          aws-region: eu-west-2
+      # - name: Assume deployment role
+      #   uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+      #   with:
+      #     apiUrl: https://ci-auth.hackney.gov.uk
+      #     roleArn: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role
+      #     region: eu-west-2
 
       - name: Log in to ECR
         id: ecr
