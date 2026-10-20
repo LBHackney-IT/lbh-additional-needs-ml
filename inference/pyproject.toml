@@ -27,7 +27,7 @@ dev = [
     "ruff>=0.8",
 ]
 launch = [
-    "sagemaker>=2.250,<3",
+    "sagemaker>=2.250,<4",
 ]
 
 [project.scripts]
