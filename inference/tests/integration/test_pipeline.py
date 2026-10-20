@@ -44,7 +44,7 @@ def row(note_id, tenure_id, household_members, text=NOTE_TEXT):
     return {
         "note_id": note_id,
         "note_category": "General",
-        "original_text": text,
+        "note_content": text,
         "note_date": NOTE_DATE,
         "tenure_id": tenure_id,
         "household_members": household_members,

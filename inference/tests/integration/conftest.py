@@ -33,7 +33,7 @@ RelationScript = tuple[str, str]
 COLUMNS = [
     "note_id",
     "note_category",
-    "original_text",
+    "note_content",
     "note_date",
     "tenure_id",
     "household_members",
