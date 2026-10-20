@@ -1,5 +1,5 @@
 from src.common.schemas import GatewayNote
-from src.services.note_preprocessor import NotePreprocessor
+from src.services.note_preprocessor import NotePreprocessor, expand_acronyms_with_offsets
 
 
 # -- Helpers ---
@@ -41,23 +41,63 @@ def test_prepare_skips_an_empty_category_prefix():
 
 
 # -- Acronym Expansion ---
-def test_prepare_keeps_original_text():
-    # Note - placeholde until acronym expansion is implemented
+def test_expand_acronyms_replaces_whole_words_only():
+    assert expand_acronyms_with_offsets("tnt visited HSc about ASB")[0] == (
+        "tenant visited Hackney Service Centre about anti-social behaviour"
+    )
+    assert expand_acronyms_with_offsets("TnT, tnts and hsc")[0] == (
+        "tenant, tenants and Hackney Service Centre"
+    )
+    assert (
+        expand_acronyms_with_offsets("the tnt's ASB.")[0] == "the tenant's anti-social behaviour."
+    )
+    assert expand_acronyms_with_offsets("l/h and h/o")[0] == "leaseholder and housing officer"
+    assert (
+        expand_acronyms_with_offsets("[Category: Repairs] tnt reported")[0]
+        == "[Category: Repairs] tenant reported"
+    )
+    assert expand_acronyms_with_offsets("content")[0] == "content"
+    assert (
+        expand_acronyms_with_offsets("stnt tent data TABLE attendance")[0]
+        == "stnt tent data TABLE attendance"
+    )
+    assert (
+        expand_acronyms_with_offsets("the content mentions tnt")[0] == "the content mentions tenant"
+    )
+    assert expand_acronyms_with_offsets("")[0] == ""
+    assert expand_acronyms_with_offsets("no acronyms here")[0] == "no acronyms here"
+
+
+def test_expand_acronyms_respects_boundaries_and_case():
+    text = "The TNT left the content for the tnts."
+
+    expanded, _ = expand_acronyms_with_offsets(text)
+    assert expanded == "The tenant left the content for the tenants."
+
+
+def test_prepare_keeps_prefixed_text_and_expands_abbreviations():
     records = NotePreprocessor().preprocess_notes(
         [
-            {
-                "note_id": "note-1",
-                "note_content": "ASB reported",
-                "tenure_id": None,
-                "household_members": None,
-            }
+            GatewayNote(
+                note_id="note-1",
+                note_category="Repairs",
+                text="tnt visited HSc about ASB",
+                tenure_id=None,
+                household_members=[],
+            )
         ]
     )
 
-    assert records[0]["text"] == "ASB reported"
-    assert records[0]["tenure_ids"] == []
-    assert records[0]["household_members"] == []
-    assert NotePreprocessor.expand_acronyms("ASB reported") == "ASB reported"
+    assert records[0].prefixed_text == "[Category: Repairs] tnt visited HSc about ASB"
+    assert records[0].expanded_text == (
+        "[Category: Repairs] tenant visited Hackney Service Centre about anti-social behaviour"
+    )
+    assert records[0].tenure_ids == []
+    assert records[0].household_members == []
+    assert [
+        records[0].prefixed_text[item.prefixed_start : item.prefixed_end]
+        for item in records[0].replacements
+    ] == ["tnt", "HSc", "ASB"]
 
 
 # -- Source Dataset ---

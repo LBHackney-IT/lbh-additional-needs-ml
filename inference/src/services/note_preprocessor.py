@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import re
+
 from src.common.schemas import (
+    AcronymReplacement,
     DomainNote,
     GatewayHouseholdMember,
     GatewayNote,
@@ -14,20 +17,117 @@ from src.common.schemas import (
     TenureMembership,
 )
 
+# ==========================================
+# ACRONYM EXPANSION (REGEX MATCHING)
+# ==========================================
+
+# Matching is case-insensitive.
+# Longer patterns are tried first so "tnts" is not read as "tnt".
+abbreviation_mapping: dict[str, str] = {
+    # Hackney terms
+    "hsc": "Hackney Service Centre",
+    "mmh": "Manage My Home",
+    "lbh": "London Borough of Hackney",
+    "rcc": "Repairs Contact Centre",
+    # Housing terms
+    "tnts": "tenants",
+    "tnt": "tenant",
+    "clt": "client",
+    "l/h": "leaseholder",
+    "h/o": "housing officer",
+    "tmo": "Tenant Management Organisation",
+    "nho": "neighbourhood housing officer",
+    "ahm": "area housing manager",
+    "hb": "housing benefit",
+    "nosp": "Notice of Seeking Possession",
+    "ntq": "Notice to Quit",
+    "rtb": "Right to Buy",
+    "uc": "Universal Credit",
+    "asb": "anti-social behaviour",
+    "dv": "domestic violence",
+    "da": "domestic abuse",
+    # General terms
+    "tel": "telephone",
+    "docs": "documents",
+    "appt": "appointment",
+    "acct": "account",
+    "bacs": "bank transfer",
+    "info": "information",
+    "org": "organisation",
+    "sms": "text message",
+    "msg": "message",
+    "cctv": "camera",
+    "gp": "general practitioner",
+    "pls": "please",
+    "recd": "received",
+    "asap": "as soon as possible",
+    "cert": "certificate",
+    "vm": "voicemail",
+}
+
+# 1. Sort by key length descending so "tnts" matches before "tnt"
+_SORTED_TERMS = sorted(abbreviation_mapping.keys(), key=len, reverse=True)
+
+# 2. Build the regex using re.escape() and word boundaries \b dynamically
+_ACRONYM_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(term) for term in _SORTED_TERMS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def expand_acronyms_with_offsets(text: str) -> tuple[str, list[AcronymReplacement]]:
+    """Expand housing acronyms and record how each replacement shifts later characters.
+
+    Matching is case-insensitive and stops at word boundaries, so an acronym is
+    not rewritten when it sits inside a longer word.
+
+    Args:
+        text: Note text, including any unexpanded acronyms.
+
+    Returns:
+        Expanded text, and one replacement per acronym in left-to-right order.
+    """
+    if not text:
+        return text, []
+
+    parts: list[str] = []
+    replacements: list[AcronymReplacement] = []
+    cursor = 0
+    expanded_cursor = 0
+
+    for match in _ACRONYM_PATTERN.finditer(text):
+        start, end = match.span()
+        expansion = abbreviation_mapping[match.group(0).lower()]
+        unchanged = text[cursor:start]
+        parts.append(unchanged)
+        expanded_cursor += len(unchanged)
+        expanded_start = expanded_cursor
+        parts.append(expansion)
+        expanded_cursor += len(expansion)
+        replacements.append(
+            AcronymReplacement(
+                prefixed_start=start,
+                prefixed_end=end,
+                expanded_start=expanded_start,
+                expanded_end=expanded_cursor,
+            )
+        )
+        cursor = end
+
+    parts.append(text[cursor:])
+    return "".join(parts), replacements
+
+
+# ==========================================
+# NOTES PREPROCESSOR
+# ==========================================
+
 
 class NotePreprocessor:
     """Group note-tenure rows by note id and normalise note text for the models."""
 
     def __init__(self, source: str = "mmh"):
         self.source = source
-
-    @staticmethod
-    def expand_acronyms(text: str) -> str:
-        """Expand acronyms to the form used in model training.
-
-        This currently returns the note unchanged.
-        """
-        return text
 
     def _prefix_category(self, note: GatewayNote) -> str:
         """Build the note text, prefixing the category the officer chose."""
@@ -144,7 +244,7 @@ class NotePreprocessor:
             base_note = note_group[0]
             # Acroynm expansion
             prefixed_text = self._prefix_category(base_note)
-            expanded_text, replacements = self.expand_acronyms(prefixed_text)
+            expanded_text, replacements = expand_acronyms_with_offsets(prefixed_text)
 
             # Grouping tenures and household members per note
             tenure_ids: list[str] = []
