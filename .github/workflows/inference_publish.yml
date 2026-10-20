@@ -10,14 +10,14 @@ on:
       - ".github/workflows/inference_publish.yml"
 
 jobs:
-  # test:
-  #   uses: ./.github/workflows/inference_test.yml
-  #   secrets:
-  #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  test:
+    uses: ./.github/workflows/inference_test.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   publish:
     name: Build & Publish Inference Image
-    # needs: test
+    needs: test
     runs-on: ubuntu-latest
     environment: production
     permissions:
