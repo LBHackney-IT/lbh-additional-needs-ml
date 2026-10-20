@@ -37,7 +37,7 @@ The detailed input/output contract, examples, thresholds, fallback rules, and pr
 
 ## Baseline requirements
 
-* **Python Version:** 3.12
+* **Python Version:** 3.11
 * **Node Version:** v24+ (Visualizer only)
 * **AWS credentials:** Training and some batch scripts require access to the `data-platform-development` account using profile `data-platform-admin-dev`.
 
