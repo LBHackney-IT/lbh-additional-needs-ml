@@ -35,7 +35,6 @@ jobs:
           apiUrl: https://ci-auth.hackney.gov.uk
           roleArn: arn:aws:iam::${{ secrets.ACCOUNT_NAME }}:role/LBH_Automation_Deployment_Role
           region: eu-west-2
-          environment: staging
 
       - name: Log in to ECR
         id: ecr
