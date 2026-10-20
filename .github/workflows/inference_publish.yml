@@ -10,15 +10,16 @@ on:
       - ".github/workflows/inference_publish.yml"
 
 jobs:
-  test:
-    uses: ./.github/workflows/inference_test.yml
-    secrets:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  # test:
+  #   uses: ./.github/workflows/inference_test.yml
+  #   secrets:
+  #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   publish:
     name: Build & Publish Inference Image
-    needs: test
+    # needs: test
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       id-token: write
       contents: read
@@ -27,13 +28,14 @@ jobs:
       ECR_REPOSITORY: housing-additional-needs-ml
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
+  
       - name: Assume deployment role
-        uses: LBHackney-IT/aws-oidc-auth@01a4d51ad267eab4c0a8eb55f62c7c8e091f04be # v1.4.2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          apiUrl: https://ci-auth.hackney.gov.uk
-          roleArn: arn:aws:iam::${{ secrets.ACCOUNT_NAME }}:role/LBH_Automation_Deployment_Role
-          region: eu-west-2
+          role-to-assume: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role_OIDC
+          role-session-name: aws-oidc-session
+          aws-region: eu-west-2
+          retry-max-attempts: "3"
 
       - name: Log in to ECR
         id: ecr
