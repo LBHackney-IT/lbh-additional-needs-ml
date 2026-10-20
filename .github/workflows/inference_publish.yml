@@ -36,6 +36,7 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.ACCOUNT }}:role/LBH_Automation_Deployment_Role_OIDC
           role-session-name: aws-oidc-session
           aws-region: eu-west-2
+          http-max-retries: "3"
 
       - name: Log in to ECR
         id: ecr
