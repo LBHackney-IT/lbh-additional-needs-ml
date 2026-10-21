@@ -212,12 +212,12 @@ All commands are run from the `/inference` directory.
 ```bash
 # Create and activate virtual environment
 python -m venv .venv && source .venv/bin/activate
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install dependencies
+make install
 
-# Run unit tests and linter
-pytest -q
-ruff check src tests
+# Run tests and linting
+make test
+make lint
 
 ```
 
@@ -242,21 +242,32 @@ data/models/
 
 *Prerequisite:* AWS credentials with access to Housing Athena Workgroup.
 
+For an AWS SSO profile, log in before running the pipeline:
+
+```bash
+aws sso login --profile data-platform-housing-staging
+export AWS_PROFILE=data-platform-housing-staging
+aws sts get-caller-identity
+```
+
 #### Option A: Direct Python Run
 
 ```bash
-# Set common defaults once
-export MODEL_ROOT="./data/models"
-export OUTPUT_DIR="./data/output"
+# Input/output dirs
+mkdir -p data/models data/output
+export AWS_PROFILE=data-platform-housing-staging
 
 # Smoke test a single note
-python -m src.run_inference --where "note_id = '<note-id>'"
+python -m src.run_inference \
+  --model-root ./data/models \
+  --output-dir ./data/output \
+  --where "note_id = '<note-id>'"
 
-# Target a custom dataset/table (e.g., Repairs)
-python -m src.run_inference --athena-table v_repairs_jds_reshaped
-
-# Custom date window filter
-python -m src.run_inference --where '"flag_inactive" = FALSE AND note_date >= DATE '\''2024-01-01'\'''
+# Target a custom dataset/table
+python -m src.run_inference \
+  --model-root ./data/models \
+  --output-dir ./data/output \
+  --athena-table v_repairs_jds_reshaped
 
 ```
 
@@ -264,21 +275,18 @@ python -m src.run_inference --where '"flag_inactive" = FALSE AND note_date >= DA
 
 ```bash
 # Build image
-docker build -t housing-additional-needs-ml .
+make build
 
-# Shared run command (mounts AWS creds, models, output directory)
-alias run-docker="docker run --rm \
-  -v \"\$(pwd)/data/models:/opt/ml/processing/model:ro\" \
-  -v \"\$(pwd)/data/output:/opt/ml/processing/output\" \
-  -v \"\$HOME/.aws:/root/.aws:ro\" \
-  -e AWS_PROFILE=data-platform-housing-staging \
-  housing-additional-needs-ml"
+# Single-note Docker smoke test
+make smoke-test WHERE="note_id = '<note-id>'"
 
-# Single note smoke test
-run-docker --where "note_id = '<note_id>'"
+# Override the AWS profile and note filter
+make run-docker \
+  AWS_PROFILE=data-platform-housing-staging \
+  ARGS='--where "note_id = '\''<note-id>'\''"'
 
 # Custom table
-run-docker --athena-table v_repairs_jds_reshaped
+make run-docker ARGS="--athena-table v_repairs_jds_reshaped"
 
 ```
 
@@ -293,6 +301,8 @@ Your AWS profile needs access to the S3 bucket, Athena workgroup, and the ECR im
 pip install -e ".[launch]"
 
 export SAGEMAKER_INFERENCE_IMAGE_URI="<account-id>.dkr.ecr.eu-west-2.amazonaws.com/housing-additional-needs-ml:<commit-sha>"
+mkdir -p .sagemaker-local
+export SAGEMAKER_LOCAL_HOME="$PWD/.sagemaker-local"
 
 # Local smoke test
 python launch_sagemaker.py \

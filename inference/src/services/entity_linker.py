@@ -19,7 +19,7 @@ from datetime import date, datetime
 from typing import TypedDict
 from zoneinfo import ZoneInfo
 
-from src.common.schemas import EnrichedNote, HouseholdMember, Link, Relation
+from src.common.schemas import DomainNote, HouseholdMember, Link, Relation
 
 
 class ResolveResult(TypedDict):
@@ -186,9 +186,7 @@ class DeterministicEntityLinker:
 
         return None
 
-    def _generate_fallback_links(
-        self, record: EnrichedNote, resolved_needs: set[str]
-    ) -> list[Link]:
+    def _generate_fallback_links(self, record: DomainNote, resolved_needs: set[str]) -> list[Link]:
         """Generate fallback tenure links for any needs that remain unresolved."""
         return [
             Link(
@@ -204,8 +202,8 @@ class DeterministicEntityLinker:
         ]
 
     # --- Public ---
-    def link(self, record: EnrichedNote) -> list[Link]:
-        """Resolve all predicted needs in an EnrichedNote to person or tenure targets."""
+    def link(self, record: DomainNote) -> list[Link]:
+        """Resolve all predicted needs in a DomainNote to person or tenure targets."""
         household = record.household_members
         household_lookup = {hm.id: hm for hm in household}
         needs_lookup = {n.id: n for n in record.needs}

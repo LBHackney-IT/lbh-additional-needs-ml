@@ -5,8 +5,8 @@ Executes the batch inference pipeline:
   2. Preprocessing
   3. Span extraction (NER) via DeBERTa
   4. Relation extraction via ALBERT
-  5. Deterministic entity linking via rule engine
-  6. Postprocessing
+  5. Deterministic entity linking
+  6. Postprocessing & output as JSON
 
 Flushes partitioned JSON output every N batches to limit RAM usage and allow
 the pipeline to resume on failure
@@ -26,7 +26,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from src.common.logging import setup_logger
-from src.common.schemas import EnrichedNote
+from src.common.schemas import DomainNote
 from src.gateway.athena_gateway import DEFAULT_WHERE, AthenaRecordSource
 from src.services.entity_linker import DeterministicEntityLinker
 from src.services.note_preprocessor import NotePreprocessor
@@ -99,17 +99,17 @@ def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -
 
 
 def _process_batch(
-    records: list[dict],
+    records: list[DomainNote],
     span_pipeline: SpanClassifierPipeline,
     relation_pipeline: RelationClassifierPipeline,
     linker: DeterministicEntityLinker,
     model_name: str,
     pipeline_run_at: datetime,
 ) -> list[dict]:
-    """Execute stages 3-6 over a micro-batch of note records.
+    """Execute stages 3-6 over a micro-batch of domain notes.
 
     Args:
-        records: Batch of raw note dictionaries.
+        records: Batch of domain notes.
         span_pipeline: Initialized span extraction pipeline.
         relation_pipeline: Initialized relation classification pipeline.
         linker: Initialized deterministic entity linker engine.
@@ -119,7 +119,7 @@ def _process_batch(
     Returns:
         List of serialized enriched note dictionaries matching output schema.
     """
-    texts = [r.get("text", "") for r in records]
+    texts = [record.expanded_text for record in records]
     enriched_payloads: list[dict] = []
 
     # 1. Span Classifier
@@ -130,25 +130,13 @@ def _process_batch(
         persons = spans.persons
         # 2. Relation Classifier
         relations = relation_pipeline.predict_from_spans(text, needs, persons)
-
-        note = EnrichedNote(
-            id=record.get("id", ""),
-            source=record.get("source", "mmh"),
-            text=text,
-            date=record.get("note_date") or record.get("date"),
-            model=model_name,
-            needs=needs,
-            persons=persons,
-            relations=relations,
-            tenure_ids=record.get("tenure_ids", []),
-            household_members=record.get("household_members", []),
-            pipeline_run_at=pipeline_run_at,
-        )
-
-        # 3. Entity Linker
-        note.links = linker.link(note)
-
-        # 4. Post-processing
+        record.needs = needs
+        record.persons = persons
+        record.relations = relations
+        # 3. Entity Linking
+        record.links = linker.link(record)
+        # 4. Convert to output
+        note = record.to_enriched(model=model_name, pipeline_run_at=pipeline_run_at)
         enriched_payloads.append(note.model_dump_for_json())
 
     return enriched_payloads
@@ -174,10 +162,12 @@ def run_inference(config: InferenceConfig, logger) -> None:
         logger=logger,
     )
     rows = record_source.fetch_records()
+
+    # 2. Preprocess
     records = NotePreprocessor(source=config.source).preprocess_notes(rows)
     logger.info("Loaded %d note-tenure rows from Athena (%d notes)", len(rows), len(records))
 
-    # 2. Load models
+    # 3. Load models
     span_model_dir = config.model_root / config.span_model_name / "final_model"
     relation_model_dir = config.model_root / config.relation_model_name / "final_model"
 
@@ -192,7 +182,7 @@ def run_inference(config: InferenceConfig, logger) -> None:
     pipeline_run_at = datetime.now(UTC)
     logger.info("Loaded models. Model name: %s; Run datetime: %s", model_name, pipeline_run_at)
 
-    # 3. Start micro-batching notes
+    # 4. Start micro-batching notes
     dataset = NotesDataset(records)
     loader = DataLoader(
         dataset,
@@ -219,13 +209,13 @@ def run_inference(config: InferenceConfig, logger) -> None:
             buffered_payloads.extend(enriched)
             batch_counter += 1
 
-            # Flush periodically (and log)
+            # 5. Flush periodically (and log)
             if batch_counter % config.flush_every_n_batches == 0:
                 _flush_part(output_dir, part_idx, buffered_payloads, logger)
                 buffered_payloads = []
                 part_idx += 1
 
-    # Final flush
+    # 6. Final flush
     if buffered_payloads:
         _flush_part(output_dir, part_idx, buffered_payloads, logger)
 
@@ -361,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         Exit code (0 for success).
     """
     config = parse_args(argv)
-    logger = setup_logger("inference.pipeline", "pipeline.log")
+    logger = setup_logger("inference.pipeline", "pipeline.log", config.output_dir / "logs")
     logger.info(
         "Starting inference: source=%s athena=%s.%s output=%s model_root=%s",
         config.source,

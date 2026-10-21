@@ -11,6 +11,8 @@ from typing import Any
 
 import boto3
 
+from src.common.schemas import GatewayNote
+
 # --- Constants ---
 DEFAULT_DATABASE = "prod__housing-refined-zone"
 DEFAULT_TABLE = "additional_needs_notes_reshaped"
@@ -99,22 +101,20 @@ class AthenaRecordSource:
             yield dict(zip(column_names, values, strict=True))
 
     @staticmethod
-    def _parse_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    def _parse_row(row: dict[str, Any]) -> GatewayNote | None:
         """Return one note-tenure row, with household_members decoded from JSON."""
         note_id = row.get("note_id")
         if not note_id:
             return None
-        record = {
-            "note_id": note_id,
-            "note_content": row.get("original_text") or "",
-            "note_date": row.get("note_date"),
-            "tenure_id": row.get("tenure_id"),
-            "household_members": _parse_household_members(row.get("household_members")),
-        }
         category = row.get("note_category")
-        if category:
-            record["note_category"] = category
-        return record
+        return GatewayNote(
+            note_id=note_id,
+            text=row.get("note_content") or "",
+            note_category=category or None,
+            note_date=row.get("note_date"),
+            tenure_id=row.get("tenure_id"),
+            household_members=_parse_household_members(row.get("household_members")),
+        )
 
     # --- Query Helpers ---
     @property
@@ -130,7 +130,7 @@ class AthenaRecordSource:
             SELECT
                 note_id,
                 note_category,
-                note_content AS original_text,
+                note_content,
                 note_date,
                 tenure_id,
                 household_members
@@ -187,7 +187,7 @@ class AthenaRecordSource:
         return rows
 
     # --- Public ---
-    def fetch_records(self) -> list[dict[str, Any]]:
+    def fetch_records(self) -> list[GatewayNote]:
         """Run the query and return data as a list of dictionaries."""
         execution_id = self._start_query()
         self._wait_for_query(execution_id)

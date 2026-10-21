@@ -44,7 +44,7 @@ def row(note_id, tenure_id, household_members, text=NOTE_TEXT):
     return {
         "note_id": note_id,
         "note_category": "General",
-        "original_text": text,
+        "note_content": text,
         "note_date": NOTE_DATE,
         "tenure_id": tenure_id,
         "household_members": household_members,
@@ -157,6 +157,27 @@ class TestExtractionAndRelations:
             ("tenure-1", "Tenant"),
             ("tenure-2", "HouseholdMember"),
         }
+
+    def test_expands_acronyms_for_models_and_projects_output_spans(self, run_pipeline):
+        text = "tnt has ASB"
+        spans = [
+            span_predict("tenant", PERSON_ROLE),
+            span_predict("anti-social behaviour", PHYSICAL_HEALTH),
+        ]
+
+        note = run_pipeline(
+            two_tenure_rows(text),
+            spans,
+            relations={("anti-social behaviour", "tenant")},
+        ).note
+
+        assert note.text == "[Category: General] tnt has ASB"
+        assert [(span.text, span.label) for span in note.persons] == [("tnt", PERSON_ROLE)]
+        assert [(span.text, span.label) for span in note.needs] == [("ASB", PHYSICAL_HEALTH)]
+        assert all(
+            note.text[span.start : span.end] == span.text for span in note.needs + note.persons
+        )
+        assert link_keys(note) == [("person-jane", "person", "role_tenant")]
 
     def test_links_two_needs_to_their_respective_people(self, run_pipeline):
         text = "Jane Doe has limited mobility. John Smith has hoarding concerns."
