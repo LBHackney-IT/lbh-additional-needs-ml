@@ -107,6 +107,23 @@ def test_insert_markers_rejects_crossing_spans():
         RelationClassifierPipeline._insert_markers(text, need, person)
 
 
+def test_predict_pairs_skips_a_crossing_pair_safely():
+    pipeline = make_relation_pipeline([[0.1, 3.0]])
+    text = "abcdefghij"
+    crossing_need = make_span("need-cross", "cdefgh", 2, 8, "physical_health")
+    crossing_person = make_span("person-cross", "fghij", 5, 10, "person_name")
+    kept_need = make_span("need-kept", "ab", 0, 2, "physical_health")
+    kept_person = make_span("person-kept", "ij", 8, 10, "person_name")
+
+    relations = pipeline.predict_pairs(
+        [(text, crossing_need, crossing_person), (text, kept_need, kept_person)]
+    )
+
+    assert [(relation.from_id, relation.to) for relation in relations] == [
+        ("need-kept", "person-kept")
+    ]
+
+
 # -- Relation scoring and filtering --
 def test_predict_pairs_uses_highest_probability_across_stride_windows():
     pipeline = make_relation_pipeline([[2.0, 1.0], [0.1, 3.0]])

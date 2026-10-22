@@ -150,10 +150,20 @@ class RelationClassifierPipeline:
         if not candidate_pairs:
             return []
 
-        # Add markers for each person x need pair
-        marked_texts = [
-            self._insert_markers(text, need, person) for text, need, person in candidate_pairs
-        ]
+        # Crossing spans cannot take markers. Skip the pair and score the rest.
+        marked_texts = []
+        scoreable_pairs = []
+        for text, need, person in candidate_pairs:
+            try:
+                marked_texts.append(self._insert_markers(text, need, person))
+            except ValueError as error:
+                if "overlap without containment" not in str(error):
+                    raise
+                continue
+            scoreable_pairs.append((text, need, person))
+
+        if not scoreable_pairs:
+            return []
 
         # Tokenize with sliding window chunking
         tokenized = self.tokenizer(
@@ -176,13 +186,13 @@ class RelationClassifierPipeline:
             window_probs = torch.softmax(logits, dim=1)[:, 1].cpu().tolist()
 
         # Aggregate window probabilities per candidate pair by taking the maximum score across chunks
-        pair_max_probs: list[float] = [0.0] * len(candidate_pairs)
+        pair_max_probs: list[float] = [0.0] * len(scoreable_pairs)
         for pair_idx, prob in zip(pair_indices, window_probs, strict=True):
             pair_max_probs[pair_idx] = max(pair_max_probs[pair_idx], prob)
 
         # Filter by threshold and format
         relations: list[Relation] = []
-        for (_, need, person), prob in zip(candidate_pairs, pair_max_probs, strict=True):
+        for (_, need, person), prob in zip(scoreable_pairs, pair_max_probs, strict=True):
             if prob > self.threshold:
                 relations.append(
                     Relation(

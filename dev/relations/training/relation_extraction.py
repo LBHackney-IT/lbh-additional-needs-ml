@@ -6,6 +6,7 @@ to a specific 'person' span. Relies on upstream models to provide the entity
 boundaries. Uses entity marker injection ([N_START]/[N_END], [P_START]/[P_END])
 to guide the attention mechanism toward the spans being related.
 """
+
 from pathlib import Path
 import os
 
@@ -24,7 +25,6 @@ from transformers import (
     AutoModelForSequenceClassification,
     TrainingArguments,
     Trainer,
-    TrainerCallback,
     DataCollatorWithPadding,
     EarlyStoppingCallback,
 )
@@ -55,18 +55,22 @@ class TrainingConfig:
 
 @dataclass
 class Config:
-    run_name: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
+    run_name: str = field(
+        default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
     # 1. Look for SageMaker data channels, fallback to local PROCESSED dir
     train_dir = Path(os.environ.get("SM_CHANNEL_TRAIN", PROCESSED))
     val_dir = Path(os.environ.get("SM_CHANNEL_VAL", PROCESSED))
-    
+
     train_path = TRAIN_DATA
     val_path = VAL_DATA
 
     training: TrainingConfig = field(default_factory=TrainingConfig)
     device = (
-        torch.device("cuda") if torch.cuda.is_available()
-        else torch.device("mps") if torch.backends.mps.is_available()
+        torch.device("cuda")
+        if torch.cuda.is_available()
+        else torch.device("mps")
+        if torch.backends.mps.is_available()
         else torch.device("cpu")
     )
 
@@ -85,12 +89,15 @@ class Config:
 
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.logger = setup_logger(
-            f"training.relation.{self.run_name}",
-            f"train_relation_{self.run_name}.log"
+            f"training.relation.{self.run_name}", f"train_relation_{self.run_name}.log"
         )
 
     def save_training_params(self):
-        save_json(path=self.model_dir / "config.json", data=asdict(self.training), logger=self.logger)
+        save_json(
+            path=self.model_dir / "config.json",
+            data=asdict(self.training),
+            logger=self.logger,
+        )
 
 
 def build_re_dataset(path, logger) -> list[dict]:
@@ -110,24 +117,31 @@ def build_re_dataset(path, logger) -> list[dict]:
         for rel in doc.get("relations", []):
             rel_from = str(rel["from"]).strip()
             rel_to = str(rel["to"]).strip()
-            
+
             valid_relations.add((rel_from, rel_to))
 
         for need in needs:
             for person in people:
                 need_id = str(need["id"]).strip()
                 person_id = str(person["id"]).strip()
-                
+
                 # Strictly require Need -> Person
                 is_linked = 1 if (need_id, person_id) in valid_relations else 0
-                marked_text = insert_markers(text, need, person)
+                try:
+                    marked_text = insert_markers(text, need, person)
+                except ValueError as error:
+                    if "overlap without containment" not in str(error):
+                        raise
+                    continue
 
-                records.append({
-                    "doc_id": doc["id"],
-                    "text": marked_text,
-                    "label": is_linked,
-                    "need_label": need["label"],
-                })
+                records.append(
+                    {
+                        "doc_id": doc["id"],
+                        "text": marked_text,
+                        "label": is_linked,
+                        "need_label": need["label"],
+                    }
+                )
 
     logger.info("Built %s (need, person) pairs from %s", len(records), path)
     return records
@@ -180,7 +194,9 @@ def main():
     config = Config()
     torch.manual_seed(config.training.seed)
 
-    config.logger.info("Beginning training script - Relation Extraction (run=%s)", config.run_name)
+    config.logger.info(
+        "Beginning training script - Relation Extraction (run=%s)", config.run_name
+    )
     config.save_training_params()
 
     config.logger.info("Initializing Relation Extractor on %s...", config.device)
@@ -188,19 +204,30 @@ def main():
     train_records = build_re_dataset(config.train_path, config.logger)
     val_records = build_re_dataset(config.val_path, config.logger)
 
-    tokenizer = AutoTokenizer.from_pretrained(config.training.base_model, add_prefix_space=False)
+    tokenizer = AutoTokenizer.from_pretrained(
+        config.training.base_model, add_prefix_space=False
+    )
     tokenizer.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
 
     def tokenize_batch(examples):
         return tokenizer(
-            examples["text"], truncation=True, padding=False, max_length=config.training.max_length
+            examples["text"],
+            truncation=True,
+            padding=False,
+            max_length=config.training.max_length,
         )
 
     train_ds = Dataset.from_list(train_records).map(
-        tokenize_batch, batched=True, remove_columns=["text", "doc_id", "need_label"], desc="Tokenising train"
+        tokenize_batch,
+        batched=True,
+        remove_columns=["text", "doc_id", "need_label"],
+        desc="Tokenising train",
     )
     val_ds = Dataset.from_list(val_records).map(
-        tokenize_batch, batched=True, remove_columns=["text", "doc_id", "need_label"], desc="Tokenising val"
+        tokenize_batch,
+        batched=True,
+        remove_columns=["text", "doc_id", "need_label"],
+        desc="Tokenising val",
     )
 
     model = AutoModelForSequenceClassification.from_pretrained(
@@ -242,7 +269,9 @@ def main():
         compute_metrics=compute_metrics,
         loss_weights=weights,
         callbacks=[
-            EarlyStoppingCallback(early_stopping_patience=config.training.early_stopping_patience),
+            EarlyStoppingCallback(
+                early_stopping_patience=config.training.early_stopping_patience
+            ),
             FileLogCallback(config.logger),
         ],
     )
@@ -250,7 +279,9 @@ def main():
     config.logger.info("Training Relation Extractor on %s...", config.device)
     trainer.train()
 
-    best_f1 = max((h.get("eval_f1", 0.0) for h in trainer.state.log_history), default=0.0)
+    best_f1 = max(
+        (h.get("eval_f1", 0.0) for h in trainer.state.log_history), default=0.0
+    )
     config.logger.info("Best eval f1 (RELATION class): %.4f", best_f1)
 
     final_dir = config.model_dir / "final_model"
@@ -261,7 +292,9 @@ def main():
     tokenizer.save_pretrained(str(final_dir))
 
     config.save_training_params()
-    config.logger.info("Pipeline complete (run=%s). Saved to %s", config.run_name, final_dir)
+    config.logger.info(
+        "Pipeline complete (run=%s). Saved to %s", config.run_name, final_dir
+    )
 
 
 if __name__ == "__main__":
