@@ -1,28 +1,34 @@
 """
 Loads predictions from all methods and compares to gold standard.
-Handles both 'oracle' classifiers (ones with gold standard spans fed in) and cascaded classifiers 
+Handles both 'oracle' classifiers (ones with gold standard spans fed in) and cascaded classifiers
 by matching predicted spans to gs spans using IOU matching.
 """
+
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Set, Tuple, List
-import pandas as pd
-from tabulate import tabulate
 
-from common.paths import PROCESSED, METRICS, VAL_DATA, TEST_DATA, PREDICTIONS
-from common.logging import setup_logger
-from common.json_helpers import load_json, save_json
+import pandas as pd
 from common.data_utils import span_iou
+from common.json_helpers import load_json, save_json
+from common.logging import setup_logger
+from common.paths import METRICS, PREDICTIONS, TEST_DATA
 from shared.evaluators import RelationEvaluator
+from tabulate import tabulate
 
 
 @dataclass
 class Config:
     data_path: Path = TEST_DATA
     # Methods: Uncomment depending on whether comparing oracle or cascading models
-    methods: List[str] = field(default_factory=lambda: [
-        "gemini", "oracle_closest_match", "oracle_relation-classifier-2",
-        "span-classifier-4_closest_match", "span-classifier-4_relation-classifier-2"]) # TODO: Make this into arg.
+    methods: list[str] = field(
+        default_factory=lambda: [
+            "gemini",
+            "oracle_closest_match",
+            "oracle_relation-classifier-2",
+            "span-classifier-4_closest_match",
+            "span-classifier-4_relation-classifier-2",
+        ]
+    )  # TODO: Make this into arg.
 
     def __post_init__(self):
         self.logger = setup_logger(
@@ -33,7 +39,9 @@ class Config:
         self.summary_path = METRICS / "relations_comparison_summary.csv"
 
 
-def build_id_map(pred_entities: List[dict], gold_entities: List[dict], iou_threshold: float = 0.5) -> Dict[str, str]:
+def build_id_map(
+    pred_entities: list[dict], gold_entities: list[dict], iou_threshold: float = 0.5
+) -> dict[str, str]:
     """Map predicted annotation entity ids onto gold entity ids using IoU matching."""
     candidates = []
 
@@ -63,7 +71,8 @@ def build_id_map(pred_entities: List[dict], gold_entities: List[dict], iou_thres
 
     return id_map
 
-def load_method_predictions(method: str, gold_data, logger) -> Dict:
+
+def load_method_predictions(method: str, gold_data, logger) -> dict:
     """Load predictions for a given method and map spans onto gold standard (expects full record list)"""
     pred_path = PREDICTIONS / f"relation.{method}.json"
 
@@ -73,44 +82,47 @@ def load_method_predictions(method: str, gold_data, logger) -> Dict:
 
     # Load raw predictions
     predictions = load_json(pred_path, logger)
-    gold_records_by_id = {r['id']: r for r in gold_data}
+    gold_records_by_id = {r["id"]: r for r in gold_data}
 
     # Map spans onto GS spans
     result = {}
     for record in predictions:
-        record_id = record['id']
+        record_id = record["id"]
         gold_record = gold_records_by_id[record_id]
         # ID Map: pred_id -> gs_id
-        id_map = build_id_map(record.get('needs', []) + record.get('persons', []), 
-                             gold_record.get('needs', []) + gold_record.get('persons', []))
+        id_map = build_id_map(
+            record.get("needs", []) + record.get("persons", []),
+            gold_record.get("needs", []) + gold_record.get("persons", []),
+        )
 
         # Translate relation annotations onto the real gold entity ids. (if oracle, will just map ids to themselves)
         mapped_relations = []
         for r in record["relations"]:
             # Get mapped span IDs
-            mapped_from = id_map.get(r['from'])
-            mapped_to = id_map.get(r['to'])
+            mapped_from = id_map.get(r["from"])
+            mapped_to = id_map.get(r["to"])
             if not mapped_from or not mapped_to:
                 continue
             # Add to relations list (list of tuples)
             mapped_relations.append((mapped_from, mapped_to))
-        
+
         # Save as dict: id: relations list of tuples
         result[record_id] = mapped_relations
 
     return result
+
 
 def generate_comparison_table(results_by_method, summary_path, logger):
     logger.info("Generating comparison summary...")
     summary_data = [
         {
             "Method": method,
-            "F1": results.get('f1'),
-            "Precision": results.get('precision'),
-            "Recall": results.get('recall'),
-            "TP": results.get('tp'),
-            "FP": results.get('fp'),
-            "FN": results.get('fn'),
+            "F1": results.get("f1"),
+            "Precision": results.get("precision"),
+            "Recall": results.get("recall"),
+            "TP": results.get("tp"),
+            "FP": results.get("fp"),
+            "FN": results.get("fn"),
         }
         for method, results in results_by_method.items()
     ]
@@ -124,24 +136,33 @@ def generate_comparison_table(results_by_method, summary_path, logger):
     logger.info("\n" + "=" * 80)
     logger.info("RELATION EXTRACTION METRICS")
     logger.info("=" * 80)
-    logger.info("\n"+tabulate(summary_df, headers="keys", showindex=False, tablefmt="psql", stralign="left", numalign="left", floatfmt=",.4f"))
+    logger.info(
+        "\n"
+        + tabulate(
+            summary_df,
+            headers="keys",
+            showindex=False,
+            tablefmt="psql",
+            stralign="left",
+            numalign="left",
+            floatfmt=",.4f",
+        )
+    )
     logger.info("=" * 80 + "\n")
 
 
 def main():
     config = Config()
     config.logger.info(
-        "Evaluating relations predictions from %d methods: %s", len(config.methods),
-          ", ".join(config.methods),
+        "Evaluating relations predictions from %d methods: %s",
+        len(config.methods),
+        ", ".join(config.methods),
     )
 
     # Load gold standard
     val_records = load_json(config.data_path, config.logger)
     y_true_by_id = {
-        record["id"]: [
-            (r["from"], r["to"])
-            for r in record.get("relations", [])
-        ]
+        record["id"]: [(r["from"], r["to"]) for r in record.get("relations", [])]
         for record in val_records
     }
 
@@ -178,6 +199,7 @@ def main():
         config.results_path,
         config.summary_path,
     )
+
 
 if __name__ == "__main__":
     main()
