@@ -159,7 +159,7 @@ class DeterministicEntityLinker:
         # model associates them with a person mention.
         if n_label.startswith("property_level"):
             if self.logger:
-                self.logger.info(
+                self.logger.debug(
                     "Keeping property-level need %s at tenure level in note %s",
                     need_id,
                     record_id,
@@ -172,7 +172,7 @@ class DeterministicEntityLinker:
 
         if self._is_minor(household_lookup.get(target_id)):
             if self.logger:
-                self.logger.info("Excluding minor person %s for need %s", target_id, need_id)
+                self.logger.debug("Excluding minor person %s for need %s", target_id, need_id)
             return None
 
         if res["method"]:
