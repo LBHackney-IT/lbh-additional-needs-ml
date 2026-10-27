@@ -224,6 +224,12 @@ def test_query_omits_where_when_the_clause_is_empty():
     assert "WHERE" not in source.query
 
 
+def test_query_orders_by_note_date():
+    source = AthenaRecordSource(client=object())
+
+    assert source.query.endswith("ORDER BY note_date ASC NULLS FIRST, note_id;")
+
+
 def test_query_rejects_a_second_statement():
     source = AthenaRecordSource(where="flag_inactive = FALSE; DROP TABLE notes", client=object())
 

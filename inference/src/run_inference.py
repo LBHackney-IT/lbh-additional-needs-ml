@@ -8,8 +8,9 @@ Executes the batch inference pipeline:
   5. Deterministic entity linking
   6. Postprocessing & output as JSON
 
-Flushes partitioned JSON output every N batches to limit RAM usage and allow
-the pipeline to resume on failure
+Flushes partitioned JSON output every N batches to limit RAM usage. Notes are
+processed in note_date order, and each flush logs the last date in that part.
+After a failed run, resume by adding that date to the Athena WHERE clause.
 """
 
 from __future__ import annotations
@@ -77,6 +78,10 @@ def _collate_records(batch: list[dict]) -> list[dict]:
 def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -> None:
     """Flush a batch partition of enriched note records to disk as formatted JSON.
 
+    The part is written to a sibling ``.tmp`` file and replaces the final name
+    only after the write is flushed. A failure mid-write leaves the previous
+    part file untouched.
+
     Args:
         output_dir: Target output directory.
         part_idx: Partition index number.
@@ -87,10 +92,20 @@ def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -
         return
 
     json_path = output_dir / f"part_{part_idx:04d}.json"
-    with open(json_path, "w", encoding="utf-8") as f:
+    temporary_path = json_path.with_name(f".{json_path.name}.tmp")
+    with open(temporary_path, "w", encoding="utf-8") as f:
         json.dump(payloads, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary_path, json_path)
 
-    logger.info("Flushed part %04d: %d notes", part_idx, len(payloads))
+    last_date = payloads[-1].get("date") or "none"
+    logger.info(
+        "Flushed part %04d: %d notes through note_date %s",
+        part_idx,
+        len(payloads),
+        last_date,
+    )
 
 
 # =========================

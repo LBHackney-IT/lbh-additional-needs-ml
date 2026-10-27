@@ -119,7 +119,7 @@ class AthenaRecordSource:
     # --- Query Helpers ---
     @property
     def query(self) -> str:
-        """Return the formatted Athena query."""
+        """Return the Athena query, with rows ordered by note_date for a date resume."""
         # Load params
         database = _validate_identifier(self.database, "database")
         table = _validate_identifier(self.table, "table")
@@ -134,7 +134,8 @@ class AthenaRecordSource:
                 note_date,
                 tenure_id,
                 household_members
-            FROM "{database}"."{table}"{where_clause};
+            FROM "{database}"."{table}"{where_clause}
+            ORDER BY note_date ASC NULLS FIRST, note_id;
         """.strip()
 
     def _start_query(self) -> str:
