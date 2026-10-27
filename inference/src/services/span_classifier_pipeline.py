@@ -26,6 +26,18 @@ from src.common.schemas import Span, SpanPredictions
 DEFAULT_MODEL_ROOT = Path("/opt/ml/processing/model")
 
 
+def _cast_for_device(model: torch.nn.Module, device: torch.device) -> None:
+    """Use one dtype for the whole span model.
+
+    CUDA runs the float16 checkpoint. CPU and MPS upcast it because half
+    precision is not supported there.
+    """
+    if device.type == "cuda":
+        model.half()
+    else:
+        model.float()
+
+
 class SpanClassifierPipeline:
     """Production runtime pipeline for batched span NER.
 
@@ -86,9 +98,10 @@ class SpanClassifierPipeline:
             )
             state_dict = load_file(self.model_dir / "model.safetensors", device=str(self.device))
             self.model.load_state_dict(state_dict)
-            # Handle float16s safely (only affects CPU/MPS runs)
-            if self.device.type != "cuda":
-                self.model.float()
+            # The checkpoint is float16. The new classification head is float32, and
+            # load_state_dict keeps that dtype, so CUDA was running a half backbone
+            # into a float head. Cast the whole model onto one dtype.
+            _cast_for_device(self.model, self.device)
             self.model.eval()  # Disable training behaviour
 
     # --- Helpers ---

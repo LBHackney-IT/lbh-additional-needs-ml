@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from src.common.schemas import Span, SpanPredictions
-from src.services.span_classifier_pipeline import SpanClassifierPipeline
+from src.services.span_classifier_pipeline import SpanClassifierPipeline, _cast_for_device
 
 
 # -- Helpers --
@@ -62,6 +62,27 @@ def test_generate_candidates_returns_no_windows_for_empty_or_zero_size_input():
 
     assert empty_offsets == []
     assert zero_size == []
+
+
+# --- Dtype ---
+def test_cuda_cast_makes_a_float_head_match_the_half_backbone():
+    model = torch.nn.Linear(4, 2)
+    model.half()
+    head = torch.nn.Linear(2, 1)
+    combined = torch.nn.Sequential(model, head)
+
+    _cast_for_device(combined, torch.device("cuda"))
+
+    assert combined[0].weight.dtype == torch.float16
+    assert combined[1].weight.dtype == torch.float16
+
+
+def test_cpu_cast_upcasts_a_float16_checkpoint():
+    model = torch.nn.Linear(4, 2).half()
+
+    _cast_for_device(model, torch.device("cpu"))
+
+    assert model.weight.dtype == torch.float32
 
 
 # --- Load thresholds ---
