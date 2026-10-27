@@ -8,6 +8,7 @@ from src.common.schemas import DomainNote, Link, Relation, Span, SpanPredictions
 from src.gateway.athena_gateway import DEFAULT_WHERE
 from src.run_inference import (
     InferenceConfig,
+    _flush_part,
     _process_batch,
     parse_args,
     run_inference,
@@ -260,3 +261,71 @@ def test_run_inference_flushes_each_batch(monkeypatch, tmp_path):
     assert [first_part[0]["id"], second_part[0]["id"]] == ["note-1", "note-2"]
     assert first_part[0]["text"] == "first"
     assert "raw_text" not in first_part[0]
+
+
+def test_flush_logs_the_last_note_date(monkeypatch, tmp_path, caplog):
+    output_dir = tmp_path / "output"
+
+    import src.run_inference as run_module
+
+    monkeypatch.setattr(FakeAthenaSource, "instances", [])
+    monkeypatch.setattr(
+        FakeAthenaSource,
+        "records",
+        [
+            {
+                "note_id": "note-earlier",
+                "text": "earlier",
+                "note_date": "2026-01-01 00:00:00",
+                "tenure_id": None,
+                "household_members": [],
+            },
+            {
+                "note_id": "note-later",
+                "text": "later",
+                "note_date": "2026-02-01 00:00:00",
+                "tenure_id": None,
+                "household_members": [],
+            },
+        ],
+    )
+    monkeypatch.setattr(run_module, "AthenaRecordSource", FakeAthenaSource)
+    monkeypatch.setattr(run_module, "SpanClassifierPipeline", FakeSpanPipeline)
+    monkeypatch.setattr(run_module, "RelationClassifierPipeline", FakeRelationPipeline)
+    monkeypatch.setattr(run_module, "DeterministicEntityLinker", FakeLinker)
+
+    with caplog.at_level(logging.INFO):
+        run_inference(
+            InferenceConfig(
+                output_dir=output_dir,
+                model_root=tmp_path / "models",
+                batch_size=1,
+                flush_every_n_batches=1,
+            ),
+            logging.getLogger("test"),
+        )
+
+    first_part = json.loads((output_dir / "part_0001.json").read_text(encoding="utf-8"))
+    second_part = json.loads((output_dir / "part_0002.json").read_text(encoding="utf-8"))
+    assert first_part[0]["id"] == "note-earlier"
+    assert second_part[0]["id"] == "note-later"
+    assert "Flushed part 0001: 1 notes through note_date 2026-01-01 00:00:00" in caplog.text
+    assert not (output_dir / ".part_0001.json.tmp").exists()
+
+
+def test_flush_part_keeps_the_previous_file_when_the_write_fails(monkeypatch, tmp_path):
+    part_path = tmp_path / "part_0001.json"
+    part_path.write_text("[]", encoding="utf-8")
+
+    def fail_dump(*_args, **_kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("src.run_inference.json.dump", fail_dump)
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        _flush_part(
+            tmp_path, 1, [{"id": "note-1", "date": "2026-01-01"}], logging.getLogger("test")
+        )
+
+    assert part_path.read_text(encoding="utf-8") == "[]"
+    assert (tmp_path / ".part_0001.json.tmp").exists()
