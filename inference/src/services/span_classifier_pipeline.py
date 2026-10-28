@@ -52,6 +52,7 @@ class SpanClassifierPipeline:
         device: torch.device | None = None,
         logger: logging.Logger | None = None,
         stride: int = 128,
+        window_batch_size: int = 32,
         # INJECTION POINTS for tests
         tokenizer: Any | None = None,
         model: Any | None = None,
@@ -62,6 +63,9 @@ class SpanClassifierPipeline:
         # 1. Simple attributes
         self.logger = logger
         self.stride = stride
+        if window_batch_size < 1:
+            raise ValueError(f"window_batch_size must be positive, got {window_batch_size}")
+        self.window_batch_size = window_batch_size
         self.person_labels = person_labels or ["person_role", "person_name"]
 
         # 2. Resolve hardware
@@ -252,6 +256,45 @@ class SpanClassifierPipeline:
 
         return pred_span_list
 
+    def _score_windows(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        candidate_spans: torch.Tensor,
+    ) -> np.ndarray:
+        """Score candidate spans a few windows at a time.
+
+        ``candidate_spans`` indexes the full tokenization. Each forward pass
+        receives one slice of windows, with those indexes rewritten from zero,
+        and the probabilities are concatenated in the original candidate order.
+        """
+        prob_chunks: list[torch.Tensor] = []
+        window_count = input_ids.shape[0]
+        with torch.inference_mode():
+            # Iterate over windows in slices of self.window_batch_size
+            for start in range(0, window_count, self.window_batch_size):
+                # Filter for spans in current window
+                end = min(start + self.window_batch_size, window_count)
+                in_chunk = (candidate_spans[:, 0] >= start) & (candidate_spans[:, 0] < end)
+                chunk_candidates = candidate_spans[in_chunk]
+                if chunk_candidates.numel() == 0:
+                    continue
+
+                # Reindex and shift
+                local_candidates = chunk_candidates.clone()
+                local_candidates[:, 0] -= start
+                # Forward pass
+                outputs = self.model(
+                    input_ids[start:end].to(self.device),
+                    attention_mask[start:end].to(self.device),
+                    local_candidates.to(self.device),
+                )
+                # Offload to CPU
+                prob_chunks.append(torch.softmax(outputs["logits"], dim=-1).cpu())
+                del outputs
+
+        return torch.cat(prob_chunks, dim=0).numpy()
+
     # --- Public ---
     def predict_batch(self, texts: list[str]) -> list[SpanPredictions]:
         """Run batch span prediction over a list of document texts.
@@ -291,13 +334,13 @@ class SpanClassifierPipeline:
         if not flat_candidates:
             return [SpanPredictions() for _ in texts]
 
-        # 3. Classify every candidate span in every window in a single forward pass.
-        input_ids = tokenized["input_ids"].to(self.device)
-        attention_mask = tokenized["attention_mask"].to(self.device)
-        candidate_spans = torch.tensor(flat_candidates, dtype=torch.long, device=self.device)
-
-        outputs = self.model(input_ids, attention_mask, candidate_spans)
-        all_probs = torch.softmax(outputs["logits"], dim=-1).cpu().numpy()
+        # 3. Classify candidate spans a few windows at a time. One forward pass
+        # over every window in the note batch does not fit on the GPU.
+        all_probs = self._score_windows(
+            tokenized["input_ids"],
+            tokenized["attention_mask"],
+            torch.tensor(flat_candidates, dtype=torch.long),
+        )
 
         # 4. Walk through the windows in order. Convert each window's token spans to character positions, grouped by original document.
         correct_leading_whitespace_offset = "deberta" in self.base_model.lower()
