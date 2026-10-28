@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from src.common.schemas import Span
-from src.services.relation_classifier_pipeline import RelationClassifierPipeline
+from src.services.relation_classifier_pipeline import RelationClassifierPipeline, _cast_for_device
 
 
 # --- Helpers ----
@@ -41,6 +41,23 @@ def make_relation_pipeline(window_logits, threshold=0.5):
     )
 
 
+# --- Dtype ---
+def test_cuda_cast_runs_the_relation_model_in_float16():
+    model = torch.nn.Linear(4, 2)
+
+    _cast_for_device(model, torch.device("cuda"))
+
+    assert model.weight.dtype == torch.float16
+
+
+def test_cpu_cast_keeps_the_relation_model_in_float32():
+    model = torch.nn.Linear(4, 2).half()
+
+    _cast_for_device(model, torch.device("cpu"))
+
+    assert model.weight.dtype == torch.float32
+
+
 # -- Build candidate pairs --
 def test_predict_pairs_returns_empty_for_no_candidates():
     pipeline = RelationClassifierPipeline.__new__(RelationClassifierPipeline)
@@ -61,6 +78,18 @@ def test_build_candidate_pairs_returns_cartesian_product():
         ("need-1", "person-1"),
         ("need-2", "person-1"),
     ]
+
+
+def test_build_candidate_pairs_skips_property_level_needs():
+    property_need = make_span("need-prop", "damp", 0, 4, "property_level_disrepair_damp_mould")
+    person_need = make_span("need-1", "support", 5, 12, "physical_health")
+    person = make_span("person-1", "Jane", 13, 17, "person_name")
+
+    pairs = RelationClassifierPipeline._build_candidate_pairs(
+        "damp support Jane", [property_need, person_need], [person]
+    )
+
+    assert [(need.id, person.id) for _, need, person in pairs] == [("need-1", "person-1")]
 
 
 # -- Insert markers around person and need spans --

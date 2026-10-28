@@ -24,13 +24,24 @@ SPECIAL_TOKENS = ["[N_START]", "[N_END]", "[P_START]", "[P_END]"]
 CandidatePair = tuple[str, Span, Span]
 
 
+def _cast_for_device(model: torch.nn.Module, device: torch.device) -> None:
+    """Run the relation model in float16 on CUDA.
+
+    CPU and MPS stay in float32. Half precision is not supported there.
+    """
+    if device.type == "cuda":
+        model.half()
+    else:
+        model.float()
+
+
 class RelationClassifierPipeline:
     def __init__(
         self,
         model_dir: Path | str | None = None,
         max_length: int | None = None,
         stride: int = 128,
-        window_batch_size: int = 32,
+        window_batch_size: int = 128,
         threshold: float = 0.5,
         device: torch.device | None = None,
         # DEPENDENCY INJECTIONS
@@ -64,11 +75,10 @@ class RelationClassifierPipeline:
 
         self.model = model
         if self.model is None:
-            self.model = (
-                AutoModelForSequenceClassification.from_pretrained(self.model_dir)
-                .to(self.device)
-                .eval()
-            )
+            self.model = AutoModelForSequenceClassification.from_pretrained(self.model_dir)
+            self.model.to(self.device)
+            _cast_for_device(self.model, self.device)
+            self.model.eval()
 
     # --- Helpers ---
     @staticmethod
@@ -124,6 +134,8 @@ class RelationClassifierPipeline:
     ) -> list[CandidatePair]:
         """Generate Cartesian product of candidate need and person span pairs.
 
+        Property-level needs belong to the tenancy, so they are left out.
+
         Args:
             text: Raw case note text string.
             needs: Extracted need spans.
@@ -132,7 +144,12 @@ class RelationClassifierPipeline:
         Returns:
             List of (text, need_span, person_span) tuples for relation scoring.
         """
-        return [(text, need, person) for need in needs for person in persons]
+        return [
+            (text, need, person)
+            for need in needs
+            if not need.label.startswith("property_level")
+            for person in persons
+        ]
 
     def _positive_probabilities(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor

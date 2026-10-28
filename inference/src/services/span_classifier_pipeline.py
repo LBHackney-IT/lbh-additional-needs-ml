@@ -52,7 +52,7 @@ class SpanClassifierPipeline:
         device: torch.device | None = None,
         logger: logging.Logger | None = None,
         stride: int = 128,
-        window_batch_size: int = 32,
+        window_batch_size: int = 128,
         # INJECTION POINTS for tests
         tokenizer: Any | None = None,
         model: Any | None = None,

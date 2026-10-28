@@ -13,6 +13,7 @@ from src.run_inference import (
     parse_args,
     run_inference,
 )
+from src.services.relation_classifier_pipeline import RelationClassifierPipeline
 
 
 # --- Fixtures ---
@@ -50,6 +51,8 @@ class FakeSpanPipeline:
 
 
 class FakeRelationPipeline:
+    _build_candidate_pairs = staticmethod(RelationClassifierPipeline._build_candidate_pairs)
+
     def __init__(self, **_kwargs):
         self.calls = []
 
@@ -202,7 +205,7 @@ def test_process_batch_calls_each_stage():
         tenure_ids=["tenure-1"],
     )
 
-    payloads = _process_batch(
+    payloads, _word_count, _pairs_scored = _process_batch(
         [record],
         span_pipeline,
         relation_pipeline,
@@ -309,7 +312,14 @@ def test_flush_logs_the_last_note_date(monkeypatch, tmp_path, caplog):
     second_part = json.loads((output_dir / "part_0002.json").read_text(encoding="utf-8"))
     assert first_part[0]["id"] == "note-earlier"
     assert second_part[0]["id"] == "note-later"
-    assert "Flushed part 0001: 1 notes through note_date 2026-01-01 00:00:00" in caplog.text
+    assert (
+        "Flushed part 0001: 1 notes, 1 words, 1 candidate pairs "
+        "through note_date 2026-01-01 00:00:00"
+    ) in caplog.text
+    assert (
+        "Flushed part 0002: 1 notes, 1 words, 1 candidate pairs "
+        "through note_date 2026-02-01 00:00:00"
+    ) in caplog.text
     assert not (output_dir / ".part_0001.json.tmp").exists()
 
 
@@ -324,7 +334,12 @@ def test_flush_part_keeps_the_previous_file_when_the_write_fails(monkeypatch, tm
 
     with pytest.raises(RuntimeError, match="disk full"):
         _flush_part(
-            tmp_path, 1, [{"id": "note-1", "date": "2026-01-01"}], logging.getLogger("test")
+            tmp_path,
+            1,
+            [{"id": "note-1", "date": "2026-01-01"}],
+            0,
+            0,
+            logging.getLogger("test"),
         )
 
     assert part_path.read_text(encoding="utf-8") == "[]"
