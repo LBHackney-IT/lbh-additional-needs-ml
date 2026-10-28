@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from src.common.schemas import Span
-from src.services.relation_classifier_pipeline import RelationClassifierPipeline
+from src.services.relation_classifier_pipeline import RelationClassifierPipeline, _cast_for_device
 
 
 # --- Helpers ----
@@ -39,6 +39,23 @@ def make_relation_pipeline(window_logits, threshold=0.5):
         tokenizer=FakeTokenizer(),
         model=FakeModel(),
     )
+
+
+# --- Dtype ---
+def test_cuda_cast_runs_the_relation_model_in_float16():
+    model = torch.nn.Linear(4, 2)
+
+    _cast_for_device(model, torch.device("cuda"))
+
+    assert model.weight.dtype == torch.float16
+
+
+def test_cpu_cast_keeps_the_relation_model_in_float32():
+    model = torch.nn.Linear(4, 2).half()
+
+    _cast_for_device(model, torch.device("cpu"))
+
+    assert model.weight.dtype == torch.float32
 
 
 # -- Build candidate pairs --

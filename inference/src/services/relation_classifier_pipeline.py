@@ -24,6 +24,17 @@ SPECIAL_TOKENS = ["[N_START]", "[N_END]", "[P_START]", "[P_END]"]
 CandidatePair = tuple[str, Span, Span]
 
 
+def _cast_for_device(model: torch.nn.Module, device: torch.device) -> None:
+    """Run the relation model in float16 on CUDA.
+
+    CPU and MPS stay in float32. Half precision is not supported there.
+    """
+    if device.type == "cuda":
+        model.half()
+    else:
+        model.float()
+
+
 class RelationClassifierPipeline:
     def __init__(
         self,
@@ -64,11 +75,10 @@ class RelationClassifierPipeline:
 
         self.model = model
         if self.model is None:
-            self.model = (
-                AutoModelForSequenceClassification.from_pretrained(self.model_dir)
-                .to(self.device)
-                .eval()
-            )
+            self.model = AutoModelForSequenceClassification.from_pretrained(self.model_dir)
+            self.model.to(self.device)
+            _cast_for_device(self.model, self.device)
+            self.model.eval()
 
     # --- Helpers ---
     @staticmethod
