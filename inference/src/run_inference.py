@@ -75,7 +75,14 @@ def _collate_records(batch: list[dict]) -> list[dict]:
     return batch
 
 
-def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -> None:
+def _flush_part(
+    output_dir: Path,
+    part_idx: int,
+    payloads: list[dict],
+    total_words: int,
+    total_pairs_scored: int,
+    logger,
+) -> None:
     """Flush a batch partition of enriched note records to disk as formatted JSON.
 
     The part is written to a sibling ``.tmp`` file and replaces the final name
@@ -86,6 +93,8 @@ def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -
         output_dir: Target output directory.
         part_idx: Partition index number.
         payloads: List of serialized enriched note dictionaries.
+        total_words: Whitespace word count of the notes in this part.
+        total_pairs_scored: Need-person pairs sent to the relation model.
         logger: Operational logger.
     """
     if not payloads:
@@ -101,9 +110,11 @@ def _flush_part(output_dir: Path, part_idx: int, payloads: list[dict], logger) -
 
     last_date = payloads[-1].get("date") or "none"
     logger.info(
-        "Flushed part %04d: %d notes through note_date %s",
+        "Flushed part %04d: %d notes, %d words, %d candidate pairs through note_date %s",
         part_idx,
         len(payloads),
+        total_words,
+        total_pairs_scored,
         last_date,
     )
 
@@ -120,7 +131,7 @@ def _process_batch(
     linker: DeterministicEntityLinker,
     model_name: str,
     pipeline_run_at: datetime,
-) -> list[dict]:
+) -> tuple[list[dict], int, int]:
     """Execute stages 3-6 over a micro-batch of domain notes.
 
     Args:
@@ -132,10 +143,12 @@ def _process_batch(
         pipeline_run_at: Timestamp representing pipeline execution start.
 
     Returns:
-        List of serialized enriched note dictionaries matching output schema.
+        Serialized enriched notes, their word count, and the need-person pairs scored.
     """
     texts = [record.expanded_text for record in records]
     enriched_payloads: list[dict] = []
+    word_count = 0
+    pairs_scored = 0
 
     # 1. Span Classifier
     span_preds = span_pipeline.predict_batch(texts)
@@ -143,6 +156,8 @@ def _process_batch(
     for record, text, spans in zip(records, texts, span_preds, strict=True):
         needs = spans.needs
         persons = spans.persons
+        word_count += len(text.split())
+        pairs_scored += len(relation_pipeline._build_candidate_pairs(text, needs, persons))
         # 2. Relation Classifier
         relations = relation_pipeline.predict_from_spans(text, needs, persons)
         record.needs = needs
@@ -154,7 +169,7 @@ def _process_batch(
         note = record.to_enriched(model=model_name, pipeline_run_at=pipeline_run_at)
         enriched_payloads.append(note.model_dump_for_json())
 
-    return enriched_payloads
+    return enriched_payloads, word_count, pairs_scored
 
 
 def run_inference(config: InferenceConfig, logger) -> None:
@@ -209,12 +224,14 @@ def run_inference(config: InferenceConfig, logger) -> None:
     )
 
     buffered_payloads: list[dict] = []
+    part_words = 0
+    part_pairs = 0
     part_idx = 1
     batch_counter = 0
 
     with torch.no_grad():
         for batch in loader:
-            enriched = _process_batch(
+            enriched, word_count, pairs_scored = _process_batch(
                 batch,
                 span_pipeline,
                 relation_pipeline,
@@ -223,17 +240,21 @@ def run_inference(config: InferenceConfig, logger) -> None:
                 pipeline_run_at,
             )
             buffered_payloads.extend(enriched)
+            part_words += word_count
+            part_pairs += pairs_scored
             batch_counter += 1
 
             # 5. Flush periodically (and log)
             if batch_counter % config.flush_every_n_batches == 0:
-                _flush_part(output_dir, part_idx, buffered_payloads, logger)
+                _flush_part(output_dir, part_idx, buffered_payloads, part_words, part_pairs, logger)
                 buffered_payloads = []
+                part_words = 0
+                part_pairs = 0
                 part_idx += 1
 
     # 6. Final flush
     if buffered_payloads:
-        _flush_part(output_dir, part_idx, buffered_payloads, logger)
+        _flush_part(output_dir, part_idx, buffered_payloads, part_words, part_pairs, logger)
 
     logger.info("Inference complete. Output written to %s", output_dir)
 

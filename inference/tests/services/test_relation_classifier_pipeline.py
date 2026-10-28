@@ -63,6 +63,18 @@ def test_build_candidate_pairs_returns_cartesian_product():
     ]
 
 
+def test_build_candidate_pairs_skips_property_level_needs():
+    property_need = make_span("need-prop", "damp", 0, 4, "property_level_disrepair_damp_mould")
+    person_need = make_span("need-1", "support", 5, 12, "physical_health")
+    person = make_span("person-1", "Jane", 13, 17, "person_name")
+
+    pairs = RelationClassifierPipeline._build_candidate_pairs(
+        "damp support Jane", [property_need, person_need], [person]
+    )
+
+    assert [(need.id, person.id) for _, need, person in pairs] == [("need-1", "person-1")]
+
+
 # -- Insert markers around person and need spans --
 def test_insert_markers_preserves_exact_text_when_person_precedes_need():
     text = "Jane needs support"

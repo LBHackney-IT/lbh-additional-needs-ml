@@ -124,6 +124,8 @@ class RelationClassifierPipeline:
     ) -> list[CandidatePair]:
         """Generate Cartesian product of candidate need and person span pairs.
 
+        Property-level needs belong to the tenancy, so they are left out.
+
         Args:
             text: Raw case note text string.
             needs: Extracted need spans.
@@ -132,7 +134,12 @@ class RelationClassifierPipeline:
         Returns:
             List of (text, need_span, person_span) tuples for relation scoring.
         """
-        return [(text, need, person) for need in needs for person in persons]
+        return [
+            (text, need, person)
+            for need in needs
+            if not need.label.startswith("property_level")
+            for person in persons
+        ]
 
     def _positive_probabilities(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
