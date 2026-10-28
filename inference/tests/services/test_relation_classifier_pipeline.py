@@ -183,3 +183,49 @@ def test_predict_pairs_returns_one_positive_relation_for_two_candidates():
 
     assert len(relations) == 1
     assert relations[0].from_id == "need-1"
+
+
+def test_predict_pairs_scores_windows_in_chunks_and_keeps_the_max_probability():
+    class FakeTokenizer:
+        def __call__(self, texts, **_kwargs):
+            assert len(texts) == 2
+            return {
+                "input_ids": torch.arange(3).unsqueeze(1).repeat(1, 4),
+                "attention_mask": torch.ones(3, 4, dtype=torch.long),
+                "overflow_to_sample_mapping": torch.tensor([0, 1, 0]),
+            }
+
+    class StubModel:
+        def __init__(self):
+            self.batches = []
+
+        def __call__(self, input_ids=None, attention_mask=None):
+            self.batches.append(input_ids.shape[0])
+            rows = []
+            for window_index in input_ids[:, 0].tolist():
+                rows.append([5.0, 0.0] if window_index == 0 else [0.0, 5.0])
+            return type("Output", (), {"logits": torch.tensor(rows)})()
+
+    model = StubModel()
+    pipeline = RelationClassifierPipeline(
+        model_dir="mock/path",
+        max_length=32,
+        stride=8,
+        window_batch_size=2,
+        threshold=0.5,
+        tokenizer=FakeTokenizer(),
+        model=model,
+    )
+    need = make_span("need-1", "hello", 0, 5, "physical_health")
+    person = make_span("person-1", "world", 6, 11, "person_name")
+    other_need = make_span("need-2", "hello", 0, 5, "physical_health")
+
+    relations = pipeline.predict_pairs(
+        [("hello world", need, person), ("hello world", other_need, person)]
+    )
+
+    assert model.batches == [2, 1]
+    assert [(relation.from_id, relation.confidence > 0.9) for relation in relations] == [
+        ("need-1", True),
+        ("need-2", True),
+    ]

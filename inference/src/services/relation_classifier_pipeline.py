@@ -30,6 +30,7 @@ class RelationClassifierPipeline:
         model_dir: Path | str | None = None,
         max_length: int | None = None,
         stride: int = 128,
+        window_batch_size: int = 32,
         threshold: float = 0.5,
         device: torch.device | None = None,
         # DEPENDENCY INJECTIONS
@@ -38,6 +39,9 @@ class RelationClassifierPipeline:
     ):
         # 1. Set simple configuration
         self.stride = stride
+        if window_batch_size < 1:
+            raise ValueError(f"window_batch_size must be positive, got {window_batch_size}")
+        self.window_batch_size = window_batch_size
         self.threshold = threshold
         self.model_dir = Path(
             model_dir or os.environ.get("RELATION_MODEL_DIR", "DEFAULT_MODEL_ROOT")
@@ -130,6 +134,28 @@ class RelationClassifierPipeline:
         """
         return [(text, need, person) for need in needs for person in persons]
 
+    def _positive_probabilities(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> list[float]:
+        """Score relation windows in groups and return the positive-class probability for each.
+
+        Windows stay in tokenizer order, so the caller can still take the max
+        probability across the windows that belong to one need-person pair.
+        """
+        probabilities: list[float] = []
+        window_count = input_ids.shape[0]
+        with torch.inference_mode():
+            # Chunk into windows of size self.window_batch_size
+            for start in range(0, window_count, self.window_batch_size):
+                end = min(start + self.window_batch_size, window_count)
+                logits = self.model(
+                    input_ids=input_ids[start:end].to(self.device),
+                    attention_mask=attention_mask[start:end].to(self.device),
+                ).logits
+                probabilities.extend(torch.softmax(logits, dim=1)[:, 1].cpu().tolist())
+                del logits
+        return probabilities
+
     # --- Public ---
     def predict_from_spans(
         self, text: str, needs: list[Span], persons: list[Span]
@@ -177,13 +203,11 @@ class RelationClassifierPipeline:
         )
 
         pair_indices = tokenized["overflow_to_sample_mapping"].tolist()
-
-        input_ids = tokenized["input_ids"].to(self.device)
-        attention_mask = tokenized["attention_mask"].to(self.device)
-
-        with torch.no_grad():
-            logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
-            window_probs = torch.softmax(logits, dim=1)[:, 1].cpu().tolist()
+        # One note can have hundreds of need-person pairs, and each pair splits
+        # into windows. Score those windows in groups so one forward fits on the GPU.
+        window_probs = self._positive_probabilities(
+            tokenized["input_ids"], tokenized["attention_mask"]
+        )
 
         # Aggregate window probabilities per candidate pair by taking the maximum score across chunks
         pair_max_probs: list[float] = [0.0] * len(scoreable_pairs)
