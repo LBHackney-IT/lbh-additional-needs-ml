@@ -178,9 +178,10 @@ def run_inference(config: InferenceConfig, logger) -> None:
     )
     rows = record_source.fetch_records()
 
-    # 2. Preprocess
+    # 2. Preprocess, then drop the raw rows. The notes list holds what inference needs.
     records = NotePreprocessor(source=config.source).preprocess_notes(rows)
     logger.info("Loaded %d note-tenure rows from Athena (%d notes)", len(rows), len(records))
+    del rows  # Drop original data copies - memory saving
 
     # 3. Load models
     span_model_dir = config.model_root / config.span_model_name / "final_model"
