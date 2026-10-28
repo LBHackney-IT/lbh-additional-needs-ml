@@ -123,6 +123,68 @@ def test_predict_batch_runs_predict_and_formats_correctly():
     assert results[0].persons == []
 
 
+def test_predict_batch_scores_windows_in_chunks_and_keeps_the_same_spans():
+    texts = ["one two", "six"]
+    offsets = [
+        [[0, 0], [0, 3], [4, 7], [0, 0]],
+        [[0, 0], [0, 0], [0, 0], [0, 0]],  # All 0s so skipped
+        [[0, 0], [0, 3], [0, 0], [0, 0]],
+    ]
+
+    class StubTokenizer:
+        def __call__(self, received, **_kwargs):
+            assert received == texts
+            return {
+                "input_ids": torch.tensor([[0, 2, 1, 0], [0, 0, 0, 0], [0, 4, 0, 0]]),
+                "attention_mask": torch.ones(3, 4, dtype=torch.long),
+                "offset_mapping": torch.tensor(offsets),
+                "overflow_to_sample_mapping": torch.tensor([0, 0, 1]),
+            }
+
+    class StubModel:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, input_ids, _attention_mask, candidate_spans):
+            self.calls.append((input_ids.shape[0], candidate_spans.tolist()))
+            rows = []
+            for window_index, start, _end in candidate_spans.tolist():
+                token = int(input_ids[window_index, start])
+                rows.append([4.0, 0.0] if token % 2 == 0 else [0.0, 4.0])
+            return {"logits": torch.tensor(rows)}
+
+    def run(window_batch_size, model):
+        pipeline = SpanClassifierPipeline(
+            model_dir="mock/path",
+            window_batch_size=window_batch_size,
+            run_config={"base_model": "fake-bert", "max_length": 128, "max_candidate_size": 1},
+            label_list=["physical_health"],
+            thresholds={"physical_health": 0.5},
+            tokenizer=StubTokenizer(),
+            model=model,
+        )
+        results = pipeline.predict_batch(texts)
+        return [
+            [(span.text, span.start, span.end, span.label) for span in result.needs]
+            for result in results
+        ]
+
+    chunked_model = StubModel()
+    whole_model = StubModel()
+    chunked = run(2, chunked_model)
+    whole = run(8, whole_model)
+
+    # The empty middle window is skipped. The later window is renumbered from zero.
+    assert chunked_model.calls == [
+        (2, [[0, 1, 2], [0, 2, 3]]),
+        (1, [[0, 1, 2]]),
+    ]
+    assert whole_model.calls == [(3, [[0, 1, 2], [0, 2, 3], [2, 1, 2]])]
+    assert (
+        chunked == whole == [[("one", 0, 3, "physical_health")], [("six", 0, 3, "physical_health")]]
+    )
+
+
 # --- Apply threshold and format ---
 def test_threshold_and_format_drops_no_entity_and_low_confidence():
     predictions = SpanClassifierPipeline._threshold_and_format(
