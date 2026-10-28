@@ -30,7 +30,7 @@ class RelationClassifierPipeline:
         model_dir: Path | str | None = None,
         max_length: int | None = None,
         stride: int = 128,
-        window_batch_size: int = 32,
+        window_batch_size: int = 128,
         threshold: float = 0.5,
         device: torch.device | None = None,
         # DEPENDENCY INJECTIONS
